@@ -1,0 +1,41 @@
+# 改完 boards.py 直接 push，自动重新构建地图并发布到 GitHub Pages。
+# 使用前提：仓库 Settings → Pages → Source 选择 “GitHub Actions”。
+# （如果你用的是传统的分支模式 Pages，可删除本文件，
+#   本地跑 build_map.py 后把生成的 HTML 覆盖 index.html 再 push 即可。）
+name: Build & Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build map
+        run: |
+          python3 build_map.py
+          mkdir -p _site
+          cp "上海买房板块地图.html" _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
