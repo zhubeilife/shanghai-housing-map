@@ -24,7 +24,12 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
+import boards  # noqa: E402
 from boards import BOARDS, DISTRICT_PRICE  # noqa: E402
+
+VERSION = getattr(boards, "VERSION", "0.0.0")
+DATA_DATE = getattr(boards, "DATA_DATE", "")
+UPDATE_NOTE = getattr(boards, "UPDATE_NOTE", "")
 
 OUT = os.path.join(HERE, "上海买房板块地图.html")
 
@@ -76,8 +81,12 @@ def main():
     # ── 组装数据段 ──
     for f in districts["features"]:
         f["properties"] = {"name": f["properties"]["name"]}
+    from datetime import date
+    meta = {"version": VERSION, "dataDate": DATA_DATE,
+            "built": date.today().isoformat(), "note": UPDATE_NOTE}
     j = lambda o: json.dumps(o, ensure_ascii=False, separators=(",", ":"))
     data_js = (
+        f"const MAPMETA={j(meta)};\n"
         f"const TOWNS={j(towns)};\n"
         f"const DISTRICTS={j(districts)};\n"
         f"const METRO={j(metro)};\n"
@@ -103,7 +112,23 @@ def main():
     with open(OUT, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"已生成：{OUT}（{os.path.getsize(OUT) / 1024:.0f} KB）")
+    print(f"版本 v{VERSION} · 数据 {DATA_DATE} · 构建 {meta['built']}")
     print("双击用浏览器打开即可；发给别人也只需要这一个 HTML 文件。")
+
+    # ── 追加 CHANGELOG（同一版本号重复构建不会重复记录）──
+    log = os.path.join(HERE, "CHANGELOG.md")
+    entry = (f"## v{VERSION}（{meta['built']}）\n\n"
+             f"- 数据月份：{DATA_DATE}\n- {UPDATE_NOTE or '（无说明）'}\n\n")
+    old = ""
+    if os.path.exists(log):
+        with open(log, encoding="utf-8") as f:
+            old = f.read()
+    if f"## v{VERSION}（" not in old:
+        head_mark = "# 更新日志\n\n"
+        body = old[len(head_mark):] if old.startswith(head_mark) else old
+        with open(log, "w", encoding="utf-8") as f:
+            f.write(head_mark + entry + body)
+        print(f"已记录到 CHANGELOG.md（v{VERSION}）")
 
 
 if __name__ == "__main__":

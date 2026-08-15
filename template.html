@@ -53,8 +53,8 @@
 <body>
 <div id="app">
   <header>
-    <h1>上海买房板块地图 · 环线 &amp; 地铁</h1>
-    <p>街镇级板块按行政区着色 · 公路实线 / 地铁虚线 · 点击板块查看参考房价（2026年8月挂牌价，仅供参考）</p>
+    <h1>上海买房板块地图 · 环线 &amp; 地铁 <span id="verBadge" style="font-size:11px;font-weight:500;color:#8894a8;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:10px;padding:1px 8px;vertical-align:2px;"></span></h1>
+    <p>街镇级板块按行政区着色 · 公路实线 / 地铁虚线 · 点击板块查看参考房价（<span class="dataDateCn">最新</span>挂牌价，仅供参考）</p>
   </header>
   <div style="position:relative;flex:1;display:flex;">
     <div id="map"></div>
@@ -79,11 +79,22 @@
     <div id="tileNote">底图瓦片加载失败（可能是网络限制）：板块、环线、地铁信息不受影响。</div>
   </div>
   <footer>
-    数据：街镇边界 © OpenStreetMap 贡献者；板块参考价综合房天下/安居客 2026年8月挂牌数据整理，郊区部分为估算，实际成交因楼龄房型差异较大；行政边界：阿里云 DataV。
+    <span id="verInfo" style="font-weight:600;"></span>
+    数据：街镇边界 © OpenStreetMap 贡献者；板块参考价综合房天下/安居客 <span class="dataDateCn"></span>挂牌数据整理，郊区部分为估算，实际成交因楼龄房型差异较大；行政边界：阿里云 DataV。
   </footer>
 </div>
 <script>
 /*__DATA__*/
+
+// ── 版本信息（由 build_map.py 从 boards.py 注入 MAPMETA）──
+const META = (typeof MAPMETA !== 'undefined') ? MAPMETA : {version:'', dataDate:'', built:''};
+const DATE_CN = META.dataDate ? META.dataDate.replace(/^(\d{4})-0?(\d+)$/, '$1年$2月') : '最新';
+if(META.version){
+  document.getElementById('verBadge').textContent = `v${META.version} · 数据 ${DATE_CN}`;
+  document.getElementById('verInfo').textContent = `v${META.version}（数据 ${DATE_CN}，构建 ${META.built}）· `;
+  document.title += ` v${META.version}`;
+}
+document.querySelectorAll('.dataDateCn').forEach(el=>{ el.textContent = DATE_CN; });
 
 // ── 行政区配色（固定顺序，相邻区颜色错开）──
 const DCOLOR = {
@@ -123,7 +134,7 @@ TOWNS.forEach(t=>{
             lblPrice='约'+(dp[0]/10000).toFixed(1)+'万'; }
   }
   poly.bindPopup(`<div class="pp-title">${t.name}</div><div class="pp-sub">${t.dist}${t.dist==='浦东'?'新区':'区'}</div>
-     ${priceHtml}<div class="pp-note">参考挂牌价（万/㎡），2026年8月</div>`);
+     ${priceHtml}<div class="pp-note">参考挂牌价（万/㎡），${DATE_CN}</div>`);
   poly.addTo(fillLayer);
   const mk = L.marker(t.c, {icon:L.divIcon({className:'twLbl', iconSize:[0,0],
       html:`<span>${t.name.replace(/(街道|镇)$/,'')}${lblPrice?`<br><span class="pr" data-pr>${lblPrice}</span>`:''}</span>`}), interactive:false});
