@@ -238,8 +238,16 @@ def main():
     with open(OUT, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"已生成：{OUT}（{os.path.getsize(OUT) / 1024:.0f} KB）")
+
+    # ── 同时输出到 dist/index.html（供 Cloudflare Pages / GitHub Pages 等托管平台）──
+    dist_dir = os.path.join(HERE, "dist")
+    os.makedirs(dist_dir, exist_ok=True)
+    with open(os.path.join(dist_dir, "index.html"), "w", encoding="utf-8") as f:
+        f.write(html)
+
     print(f"版本 v{VERSION} · 数据 {DATA_DATE} · 构建 {meta['built']}")
     print("双击用浏览器打开即可；发给别人也只需要这一个 HTML 文件。")
+    print(f"部署用文件：dist/index.html")
 
     # ── 追加 CHANGELOG（同一版本号重复构建不会重复记录）──
     log = os.path.join(HERE, "CHANGELOG.md")
