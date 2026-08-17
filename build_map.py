@@ -239,7 +239,9 @@ def main():
         f.write(html)
     print(f"已生成：{OUT}（{os.path.getsize(OUT) / 1024:.0f} KB）")
 
-    # ── 同时输出到 dist/index.html（供 Cloudflare Pages / GitHub Pages 等托管平台）──
+    # ── 同时输出 index.html 和 dist/index.html（供托管平台部署）──
+    with open(os.path.join(HERE, "index.html"), "w", encoding="utf-8") as f:
+        f.write(html)
     dist_dir = os.path.join(HERE, "dist")
     os.makedirs(dist_dir, exist_ok=True)
     with open(os.path.join(dist_dir, "index.html"), "w", encoding="utf-8") as f:
