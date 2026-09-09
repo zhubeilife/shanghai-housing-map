@@ -182,6 +182,7 @@ def main():
     towns = load("towns.json")
     districts = load("districts.json")
     metro = load("metro_lines.json")
+    metro_planned = load("metro_planned.json")
     rings = load("ring_roads.json")
 
     # ── Voronoi 板块细分 ──
@@ -216,6 +217,7 @@ def main():
         f"const TOWNLINES={j(town_lines)};\n"
         f"const DISTRICTS={j(districts)};\n"
         f"const METRO={j(metro)};\n"
+        f"const METRO_PLANNED={j(metro_planned)};\n"
         f"const RINGS={j(rings)};\n"
         f"const DIST_PRICE={j(DISTRICT_PRICE)};\n"
     )

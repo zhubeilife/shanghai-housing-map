@@ -30,6 +30,7 @@
   .swArea{width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.15);flex:none;}
   .lineSw{width:22px;height:0;border-top:4px solid;border-radius:2px;flex:none;}
   .lineSw.dash{border-top-style:dashed;border-top-width:3px;}
+  .lineSw.dotted{border-top-style:dotted;border-top-width:3px;}
   #legend hr{border:none;border-top:1px solid #e8edf3;margin:7px 0;}
   /* 视图切换 */
   .view-toggle{display:flex;gap:2px;margin-bottom:8px;padding:2px;border:1px solid #d1d9e6;border-radius:8px;background:#f1f5f9;}
@@ -62,7 +63,7 @@
 <div id="app">
   <header>
     <h1>上海买房板块地图 · 环线 &amp; 地铁 <span id="verBadge" style="font-size:11px;font-weight:500;color:#8894a8;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:10px;padding:1px 8px;vertical-align:2px;"></span></h1>
-    <p>按行政区着色 · 公路实线 / 地铁虚线 · 点击查看参考房价（<span class="dataDateCn">最新</span>挂牌价，仅供参考）</p>
+    <p>按行政区着色 · 公路实线 / 地铁虚线 / 在建规划地铁点线 · 点击查看参考房价（<span class="dataDateCn">最新</span>挂牌价，仅供参考）</p>
   </header>
   <div style="position:relative;flex:1;display:flex;">
     <div id="map"></div>
@@ -77,6 +78,7 @@
       <hr class="view-sep">
       <label><input type="checkbox" id="ckRings" checked> 环线公路</label>
       <label><input type="checkbox" id="ckMetro" checked> 地铁线路</label>
+      <label><input type="checkbox" id="ckMetroPlanned" checked> 在建/规划地铁（2030前）</label>
       <label><input type="checkbox" id="ckTown"> 街镇界参考</label>
     </div>
     <div id="legend" class="panel">
@@ -85,7 +87,8 @@
       <div class="row"><span class="lineSw" style="border-color:var(--ring-mid)"></span>中环路（实线）</div>
       <div class="row"><span class="lineSw" style="border-color:var(--ring-outer)"></span>外环高速 S20（实线）</div>
       <div class="row"><span class="lineSw" style="border-color:var(--ring-sub)"></span>绕城高速 G1503（实线）</div>
-      <div class="row"><span class="lineSw dash" style="border-color:#e4002b"></span>地铁（虚线·官方线路色）</div>
+      <div class="row"><span class="lineSw dash" style="border-color:#e4002b"></span>地铁（虚线·已开通）</div>
+      <div class="row"><span class="lineSw dotted" style="border-color:#6B7A99"></span>在建/规划地铁（点线·2030前建成）</div>
       <hr>
       <h4>行政区</h4>
       <div class="grid" id="distLegend"></div>
@@ -308,6 +311,18 @@ Object.entries(METRO).forEach(([ref,l])=>{
   });
 });
 
+// ── 在建/规划地铁：点线，2030年前明确建成 ──
+const metroPlannedLayer = L.layerGroup().addTo(map);
+Object.entries(METRO_PLANNED).forEach(([name,l])=>{
+  l.paths.forEach(p=>{
+    const line=L.polyline(p,{color:l.colour,weight:3,opacity:.9,dashArray:'2 7'});
+    line.bindPopup(`<div class="pp-title" style="color:${l.colour}">${name}（在建/规划）</div><div class="pp-note">${l.note||''}<br>点线 = 在建/规划；虚线 = 已开通地铁</div>`);
+    line.on('mouseover',e=>e.target.setStyle({weight:5.5}));
+    line.on('mouseout',e=>e.target.setStyle({weight:3}));
+    line.addTo(metroPlannedLayer);
+  });
+});
+
 // ── 图例：行政区 ──
 document.getElementById('distLegend').innerHTML =
   Object.entries(DCOLOR).map(([d,c])=>`<div class="row"><span class="swArea" style="background:${c}"></span>${d}</div>`).join('');
@@ -318,6 +333,7 @@ document.getElementById('ckFill').addEventListener('change',e=>{
 });
 bindToggle('ckRings', ringLayer);
 bindToggle('ckMetro', metroLayer);
+bindToggle('ckMetroPlanned', metroPlannedLayer);
 bindToggle('ckTown', townLineLayer);
 document.getElementById('ckLbl').addEventListener('change', refreshLabels);
 document.getElementById('ckPr').addEventListener('change', refreshLabels);

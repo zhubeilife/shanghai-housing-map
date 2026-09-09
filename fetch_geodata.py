@@ -10,11 +10,12 @@ data/ 目录已带好一份现成数据。只有在以下情况才需要重跑�
 
 用法（仅需 Python 3 标准库，需联网）：
 
-    python3 fetch_geodata.py            # 全部重新抓取
-    python3 fetch_geodata.py metro      # 只抓地铁
-    python3 fetch_geodata.py rings      # 只抓环线
-    python3 fetch_geodata.py towns      # 只抓街镇边界（最慢，约1-3分钟）
-    python3 fetch_geodata.py districts  # 只抓区界
+    python3 fetch_geodata.py                # 全部重新抓取
+    python3 fetch_geodata.py metro          # 只抓地铁（已开通线路）
+    python3 fetch_geodata.py rings          # 只抓环线
+    python3 fetch_geodata.py towns          # 只抓街镇边界（最慢，约1-3分钟）
+    python3 fetch_geodata.py districts      # 只抓区界
+    python3 fetch_geodata.py metro_planned  # 只抓在建/规划地铁（不纳入 all，数据不稳定需人工核对）
 
 数据来源：
   · 区界：阿里云 DataV（geo.datav.aliyun.com）
@@ -165,6 +166,106 @@ def fetch_metro():
     print("  完成 → data/metro_lines.json")
 
 
+def _bbox(seg):
+    lats = [p[1] for p in seg]; lons = [p[0] for p in seg]
+    return (min(lats), max(lats), min(lons), max(lons))
+
+
+def _dedup_parallel(paths):
+    """去掉双线并行轨道产生的近乎重复的线（保留更长的那条）。"""
+    boxes = [_bbox(p) for p in paths]
+    keep = [True] * len(paths)
+    for i in range(len(paths)):
+        if not keep[i]:
+            continue
+        for j in range(i + 1, len(paths)):
+            if not keep[j]:
+                continue
+            a1, a2, a3, a4 = boxes[i]; b1, b2, b3, b4 = boxes[j]
+            iy = max(0, min(a2, b2) - max(a1, b1)); ix = max(0, min(a4, b4) - max(a3, b3))
+            small = min((a2 - a1) * (a4 - a3), (b2 - b1) * (b4 - b3)) or 1e-12
+            if (iy * ix) / small > 0.9:
+                if len(paths[i]) >= len(paths[j]):
+                    keep[j] = False
+                else:
+                    keep[i] = False
+                    break
+    return [p for p, k in zip(paths, keep) if k]
+
+
+def fetch_metro_planned():
+    """在建/规划地铁线路（"十五五"规划明确 2030 年前建成的部分）。
+
+    这些线路多数尚未通车，OSM 里没有稳定的 route relation，只能按
+    railway=construction 的 way（按线路名匹配）现抓现拼；崇明线（22号线）
+    目前 OSM 连 way 都没有，退化为用已有的车站节点顺次连线做示意。
+    数据源不稳定，若某条线抓不到，跳过并提示，不影响其余线路。
+    """
+    print("▸ 抓取在建/规划地铁线路（Overpass）…")
+    specs = [
+        ("嘉闵线", "嘉闵线", "#6B7A99", "嘉闵线（2030年前建成）"),
+        ("南汇支线", "南汇支线|南汇线", "#8A6D5C", "南汇支线（2030年前建成）"),
+        ("21号线", "地铁21号线|轨道交通21号线", "#9A6B7A", "21号线一期及东延伸（2030年前建成）"),
+        ("23号线", "地铁23号线|轨道交通23号线", "#6B8A9A", "23号线一期（2030年前建成）"),
+    ]
+    lines = {}
+    for key, name_re, colour, note in specs:
+        try:
+            d = overpass(f'[out:json][timeout:120];'
+                        f'area["name"="上海市"]["admin_level"="4"]->.sh;'
+                        f'way["name"~"{name_re}"](area.sh);out geom;')
+        except Exception as e:
+            print(f"  ⚠ {key} 抓取失败，跳过：{e}")
+            continue
+        segs = [way_pts(e) for e in d["elements"]]
+        paths = _dedup_parallel([simplify(s, 0.0004) for s in stitch(segs) if len(s) > 1])
+        if not paths:
+            print(f"  ⚠ {key} 未找到几何数据，跳过")
+            continue
+        lines[key] = {"colour": colour, "note": note, "paths": [to_latlng(p) for p in paths]}
+        print(f"  {key}: {len(paths)} 段")
+
+    # 12号线西延伸：只取已有"12号线" way 里带 construction 标记的新建段
+    try:
+        d = overpass('[out:json][timeout:120];'
+                    'area["name"="上海市"]["admin_level"="4"]->.sh;'
+                    'way["railway"]["name"~"12号线"](area.sh);out geom;')
+        els = [e for e in d["elements"] if e.get("tags", {}).get("construction") == "subway"]
+        segs = [way_pts(e) for e in els]
+        paths = [simplify(s, 0.0004) for s in stitch(segs) if len(s) > 1]
+        if paths:
+            lines["12号线西延伸"] = {"colour": "#007B5F", "note": "12号线西延伸（2030年前建成）",
+                                   "paths": [to_latlng(p) for p in paths]}
+            print(f"  12号线西延伸: {len(paths)} 段")
+    except Exception as e:
+        print(f"  ⚠ 12号线西延伸 抓取失败，跳过：{e}")
+
+    # 崇明线（22号线）：OSM 尚无完整线路几何，退化为按已知车站节点顺次连线（示意，非精确走向）
+    try:
+        d = overpass('[out:json][timeout:60];'
+                    '(node["railway"="station"]["name"~"^金吉路$|^申江路$|^凌空北路$|'
+                    '^长兴岛$|^陈家镇$|^东滩$|^裕安$"](30.9,121.4,31.7,122.0););out;')
+        pts = {}
+        for e in d["elements"]:
+            pts.setdefault(e["tags"]["name"], (e["lat"], e["lon"]))
+        order = ["金吉路", "申江路", "高宝路", "凌空北路", "长兴岛", "陈家镇", "东滩", "裕安"]
+        if "申江路" in pts and "凌空北路" in pts:
+            lat = (pts["申江路"][0] + pts["凌空北路"][0]) / 2
+            lon = (pts["申江路"][1] + pts["凌空北路"][1]) / 2
+            pts.setdefault("高宝路", (lat, lon))
+        path = [[pts[s][0], pts[s][1]] for s in order if s in pts]
+        if len(path) >= 2:
+            lines["崇明线"] = {"colour": "#6B8F71",
+                             "note": "崇明线（2030年前建成，车站间为近似直线示意）",
+                             "paths": [path]}
+            print(f"  崇明线: {len(path)} 站（示意直线）")
+    except Exception as e:
+        print(f"  ⚠ 崇明线 抓取失败，跳过：{e}")
+
+    json.dump(lines, open(os.path.join(DATA, "metro_planned.json"), "w"), ensure_ascii=False)
+    print(f"  完成 → data/metro_planned.json（{len(lines)} 条）")
+
+
 def fetch_rings():
     """内环 / 中环 / 外环 S20 / 郊环 G1503。"""
     print("▸ 抓取环线公路（Overpass）…")
@@ -294,4 +395,6 @@ if __name__ == "__main__":
         fetch_rings()
     if want in ("all", "towns"):
         fetch_towns()
+    if want == "metro_planned":  # 数据不稳定，不纳入 all，需要时单独跑并人工核对
+        fetch_metro_planned()
     print("完成。接下来运行 python3 build_map.py 重新生成地图。")
