@@ -3,3 +3,4 @@ __pycache__/
 上海买房板块地图.html
 _site/
 .DS_Store
+.cache/
