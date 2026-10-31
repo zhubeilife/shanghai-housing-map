@@ -32,6 +32,18 @@
   .lineSw.dash{border-top-style:dashed;border-top-width:3px;}
   .lineSw.dotted{border-top-style:dotted;border-top-width:3px;}
   #legend hr{border:none;border-top:1px solid #e8edf3;margin:7px 0;}
+  /* 价位筛选（左上，缩放按钮右侧） */
+  #priceFilter{top:12px;left:54px;padding:8px 10px;}
+  .pf-title{font-weight:600;color:var(--ink);margin-bottom:3px;}
+  .pf-row{display:flex;align-items:center;gap:4px;color:var(--ink2);}
+  .pf-row input{width:44px;padding:2px 4px;font-size:12px;font-family:inherit;border:1px solid #cbd5e1;border-radius:5px;}
+  .pf-row button{padding:2px 7px;font-size:11px;font-family:inherit;color:var(--ink2);cursor:pointer;
+    border:1px solid #cbd5e1;border-radius:5px;background:#f8fafc;}
+  .pf-chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px;max-width:170px;}
+  .pf-chips button{padding:1px 6px;font-size:11px;font-family:inherit;color:var(--ink2);cursor:pointer;
+    border:1px solid #d1d9e6;border-radius:9px;background:#fff;}
+  .pf-chips button:hover,.pf-row button:hover{background:#eef2f7;}
+  #pfCount{margin-top:4px;font-size:11px;color:var(--ink3);}
   /* 视图切换 */
   .view-toggle{display:flex;gap:2px;margin-bottom:8px;padding:2px;border:1px solid #d1d9e6;border-radius:8px;background:#f1f5f9;}
   .view-btn{flex:1;text-align:center;padding:5px 8px;cursor:pointer;font-size:11.5px;color:var(--ink2);
@@ -80,6 +92,20 @@
       <label><input type="checkbox" id="ckMetro" checked> 地铁线路</label>
       <label><input type="checkbox" id="ckMetroPlanned" checked> 在建/规划地铁（2030前）</label>
       <label><input type="checkbox" id="ckTown"> 街镇界参考</label>
+    </div>
+    <!-- 价位筛选：板块价格区间与所填范围有重叠即算符合，其余变灰 -->
+    <div id="priceFilter" class="panel">
+      <div class="pf-title">价位筛选（万/㎡）</div>
+      <div class="pf-row">
+        <input type="number" id="pfMin" min="0" step="0.5" placeholder="最低"> –
+        <input type="number" id="pfMax" min="0" step="0.5" placeholder="最高">
+        <button id="pfClear">清除</button>
+      </div>
+      <div class="pf-chips" id="pfChips">
+        <button data-r="0,3">3万以下</button><button data-r="3,5">3–5万</button>
+        <button data-r="5,7">5–7万</button><button data-r="7,10">7–10万</button><button data-r="10,">10万以上</button>
+      </div>
+      <div id="pfCount"></div>
     </div>
     <div id="legend" class="panel">
       <h4>交通线路</h4>
@@ -134,16 +160,30 @@ tiles.on('tileload', ()=>{ if(!tileOk){tileOk=true; document.getElementById('til
 tiles.on('tileerror', ()=>{ if(!tileOk && ++tileFail>6) document.getElementById('tileNote').style.display='block'; });
 tiles.addTo(map);
 
+// ── 区域填色（价位筛选不符合的变灰）──
+function polyStyle(p, hover){
+  if(p._out) return {fillColor:'#cbd5e1', fillOpacity:hover?.3:.18, weight:p._w};
+  return {fillColor:p._c, fillOpacity:hover?.72:.5, weight:hover?2:p._w};
+}
+function makePoly(rings, dist, w, lo, hi){
+  const poly = L.polygon(rings, {color:'#ffffff', weight:w, opacity:.9, fillColor:DCOLOR[dist]||'#999', fillOpacity:.5});
+  poly._c = DCOLOR[dist] || '#999'; poly._w = w; poly._lo = lo; poly._hi = hi; poly._out = false;
+  poly.on('mouseover', e=>e.target.setStyle(polyStyle(poly, true)));
+  poly.on('mouseout', e=>e.target.setStyle(polyStyle(poly, false)));
+  return poly;
+}
+// 没有细分板块价时用区级均价（万/㎡）
+function distPrice(dist){ const dp=DIST_PRICE[dist]; return dp ? +(dp[0]/10000).toFixed(1) : null; }
+
 // ── 双视图数据构建 ──
 // 视图 A：板块级（Voronoi 细分）
 const cellFillLayer = L.layerGroup();
 const cellLblLayer = L.layerGroup();
 const cellLblMarkers = [];
+const cellPolys = [];
 CELLS.forEach(t=>{
-  const c = DCOLOR[t.dist] || '#999';
-  const poly = L.polygon(t.rings, {color:'#ffffff', weight:1.1, opacity:.9, fillColor:c, fillOpacity:.5});
-  poly.on('mouseover', e=>e.target.setStyle({fillOpacity:.72, weight:2}));
-  poly.on('mouseout', e=>e.target.setStyle({fillOpacity:.5, weight:1.1}));
+  const dpv = distPrice(t.dist);
+  const poly = makePoly(t.rings, t.dist, 1.1, t.lo!=null?t.lo:dpv, t.lo!=null?t.hi:dpv);
   let priceHtml='', lblPrice='';
   if(t.lo != null){
     priceHtml = `<div class="pp-price">约 ${t.lo} – ${t.hi} 万/㎡</div>` +
@@ -161,6 +201,8 @@ CELLS.forEach(t=>{
       html:`<span>${t.name}${lblPrice?`<br><span class="pr" data-pr>${lblPrice}</span>`:''}</span>`}), interactive:false});
   mk._area = t.a || 0;
   mk._lat = t.c[0];
+  poly._mk = mk;
+  cellPolys.push(poly);
   cellLblMarkers.push(mk);
 });
 
@@ -168,11 +210,11 @@ CELLS.forEach(t=>{
 const townFillLayer = L.layerGroup();
 const townLblLayer = L.layerGroup();
 const townLblMarkers = [];
+const townPolys = [];
 TOWNS.forEach(t=>{
-  const c = DCOLOR[t.dist] || '#999';
-  const poly = L.polygon(t.rings, {color:'#ffffff', weight:1.3, opacity:.9, fillColor:c, fillOpacity:.5});
-  poly.on('mouseover', e=>e.target.setStyle({fillOpacity:.72, weight:2}));
-  poly.on('mouseout', e=>e.target.setStyle({fillOpacity:.5, weight:1.3}));
+  const has = t.boards && t.boards.length, dpv = distPrice(t.dist);
+  const poly = makePoly(t.rings, t.dist, 1.3,
+    has ? Math.min(...t.boards.map(b=>b.lo)) : dpv, has ? Math.max(...t.boards.map(b=>b.hi)) : dpv);
   // 弹窗内容：街镇名 + 匹配的板块价格列表
   let popHtml = `<div class="pp-title">${t.fullname || t.name}</div><div class="pp-sub">${t.dist}${t.dist==='浦东'?'新区':'区'} · 街镇</div>`;
   let lblPrice = '';
@@ -201,6 +243,8 @@ TOWNS.forEach(t=>{
       html:`<span>${t.name}${lblPrice?`<br><span class="pr" data-pr>${lblPrice}</span>`:''}</span>`}), interactive:false});
   mk._area = t.a || 0;
   mk._lat = t.c[0];
+  poly._mk = mk;
+  townPolys.push(poly);
   townLblMarkers.push(mk);
 });
 
@@ -238,6 +282,7 @@ function switchView(mode){
   if(document.getElementById('ckFill').checked) activeFillLayer.addTo(map);
   activeLblLayer.addTo(map);
   refreshLabels();
+  updateFilterCount();
 }
 document.querySelectorAll('#viewToggle .view-btn').forEach(btn=>{
   btn.addEventListener('click', e=>{
@@ -260,7 +305,7 @@ function refreshLabels(){
   const priceThreshold = curView==='cell' ? 6000 : 10000;
   activeLblMarkers.forEach(m=>{
     const px2 = m._area * Math.pow(world/360,2) * Math.cos(m._lat*Math.PI/180);
-    const want = show && px2 > nameThreshold;
+    const want = show && px2 > nameThreshold && !m._out;
     const has = activeLblLayer.hasLayer(m);
     if(want&&!has) activeLblLayer.addLayer(m);
     if(!want&&has) activeLblLayer.removeLayer(m);
@@ -271,6 +316,40 @@ function refreshLabels(){
   });
 }
 map.on('zoomend', refreshLabels);
+
+// ── 价位筛选：区间 [lo,hi] 与 [最低,最高] 有重叠即算符合；没填的一端不限 ──
+const pfMin = document.getElementById('pfMin'), pfMax = document.getElementById('pfMax');
+function applyFilter(){
+  const min = pfMin.value==='' ? -Infinity : +pfMin.value;
+  const max = pfMax.value==='' ? Infinity : +pfMax.value;
+  const on = pfMin.value!=='' || pfMax.value!=='';
+  [cellPolys, townPolys].forEach(ps=>ps.forEach(p=>{
+    p._out = on && (p._lo==null || p._hi < min || p._lo > max);
+    p._mk._out = p._out;
+    p.setStyle(polyStyle(p, false));
+  }));
+  document.querySelectorAll('#pfChips button').forEach(b=>{
+    const [lo,hi] = b.dataset.r.split(',');
+    b.style.background = (on && pfMin.value===lo && pfMax.value===hi) ? '#e2e8f0' : '';
+  });
+  refreshLabels();
+  updateFilterCount();
+}
+function updateFilterCount(){
+  const ps = curView==='cell' ? cellPolys : townPolys;
+  const on = pfMin.value!=='' || pfMax.value!=='';
+  document.getElementById('pfCount').textContent = on
+    ? `符合 ${ps.filter(p=>!p._out).length} / ${ps.length} 个${curView==='cell'?'板块':'街镇'}`
+    : '填写价位或点选区间';
+}
+pfMin.addEventListener('input', applyFilter);
+pfMax.addEventListener('input', applyFilter);
+document.getElementById('pfClear').addEventListener('click', ()=>{ pfMin.value=''; pfMax.value=''; applyFilter(); });
+document.querySelectorAll('#pfChips button').forEach(b=>b.addEventListener('click', ()=>{
+  const [lo,hi] = b.dataset.r.split(',');
+  pfMin.value = lo; pfMax.value = hi; applyFilter();
+}));
+updateFilterCount();
 
 // ── 区界描边（较粗白线，凸显行政区分组）──
 const distOutline = L.geoJSON(DISTRICTS, {style:{color:'#ffffff', weight:2.6, opacity:.95, fill:false}}).addTo(map);
