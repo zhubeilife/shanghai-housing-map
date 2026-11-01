@@ -13,6 +13,8 @@
 取"上榜小区"里确实位于 <区><板块>商圈 的小区挂牌均价，
 用 25%–75% 分位作为该板块的参考价区间。上榜小区少于 --min-n 个
 （默认 10）的板块不改，保留旧值并在行尾注明。
+行尾注释写明"房天下"来源的板块（贝壳对不上、手动用房天下补的）也不改，
+只在对比表后列出贝壳值供参考；要覆盖它们加 --override-fang。
 
 注意：
 - 这是挂牌价，不是成交价。小区榜偏向成交活跃的小区，次新房、豪宅偏多的
@@ -87,6 +89,7 @@ def main():
     ap.add_argument("--month", default=datetime.date.today().strftime("%Y-%m"), help="缓存分组与新的 DATA_DATE，默认本月")
     ap.add_argument("--min-n", type=int, default=10, help="至少多少个上榜小区才更新，默认 10")
     ap.add_argument("--gap", type=float, default=8, help="两次贝壳请求的间隔秒数，默认 8")
+    ap.add_argument("--override-fang", action="store_true", help="行尾注明房天下来源的板块也用贝壳值覆盖")
     a = ap.parse_args()
 
     cache_dir = os.path.join(HERE, ".cache", "beike", a.month)
@@ -103,7 +106,9 @@ def main():
         if i % 20 == 0:
             print(f"  已请求 {i}/{len(todo)}", flush=True)
 
-    updates, rows, kept = {}, [], []
+    src = open(os.path.join(HERE, "boards.py"), encoding="utf-8").read()
+    fang = set() if a.override_fang else set(re.findall(r'^\s*\("([^"]+)",.*\),\s+#.*房天下', src, re.M))
+    updates, rows, kept, skipped = {}, [], [], []
     for name, dist, lat, lng, lo, hi, *_ in BOARDS:
         vals = []
         for part in name.split("·"):
@@ -111,6 +116,9 @@ def main():
             vals += listing_avgs(text, dist, part)
         if len(vals) >= a.min_n:
             nlo, nhi = round(pct(vals, .25), 1), round(pct(vals, .75), 1)
+            if name in fang:
+                skipped.append(f"{name}（现 {lo:g}-{hi:g}，贝壳 {nlo:g}-{nhi:g}，{len(vals)} 个）")
+                continue
             updates[name] = {"lo": nlo, "hi": nhi, "note": None}
             rows.append(((nlo + nhi) / (lo + hi) - 1, name, dist, lo, hi, nlo, nhi, len(vals)))
         else:
@@ -123,12 +131,13 @@ def main():
     if rows:
         print(f"\n可更新 {len(rows)} 个板块，变化中位数 {statistics.median(r[0] for r in rows):+.0%}")
     print(f"保留旧值 {len(kept)} 个（上榜小区 < {a.min_n}）：" + "、".join(f"{n}({k})" for n, k in kept))
+    if skipped:
+        print(f"房天下来源、不覆盖 {len(skipped)} 个（要覆盖加 --override-fang）：" + "、".join(skipped))
 
     if not a.apply:
         print("\n确认无误后加 --apply 写回 boards.py。")
         return
     note = KEEP_NOTE.format(date=DATA_DATE)
-    src = open(os.path.join(HERE, "boards.py"), encoding="utf-8").read()
     for name, _ in kept:  # 已有说明（例如更早的沿用记录）的保持不动
         if not re.search(rf'\("{re.escape(name)}",.*\),\s+#', src):
             updates[name] = {"note": note}
