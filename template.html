@@ -87,6 +87,40 @@
   #tileNote{position:absolute;left:12px;bottom:22px;z-index:900;background:rgba(255,251,235,.95);border:1px solid #f4e3b2;
             border-radius:8px;padding:6px 10px;font-size:11px;color:#8a6d1a;display:none;max-width:250px;}
   footer{padding:5px 16px;background:var(--surface);border-top:1px solid #e6eaf0;font-size:10.5px;color:var(--ink3);}
+  /* 手机 / 窄屏（≤860px）：图层、价位筛选、图例收进底部抽屉，默认只露一条把手，地图不被遮挡 */
+  #sheet{display:contents;}
+  #sheetBody{display:contents;}
+  #sheetHandle{display:none;}
+  @media (max-width:860px){
+    header{padding:6px 12px 5px;}
+    header h1{font-size:14.5px;}
+    header p{display:none;}
+    #sheet{display:flex;flex-direction:column;position:absolute;left:0;right:0;bottom:0;z-index:1001;
+           height:var(--sheet-h,44px);background:#fff;border-radius:14px 14px 0 0;
+           box-shadow:0 -2px 14px rgba(0,0,0,.22);transition:height .24s ease;}
+    #sheet.dragging{transition:none;}
+    #sheetHandle{display:block;flex:none;width:100%;height:44px;padding:0;margin:0;border:0;border-radius:14px 14px 0 0;
+                 background:transparent;color:var(--ink2);font-size:13px;font-weight:600;font-family:inherit;cursor:grab;touch-action:none;}
+    #sheetHandle::before{content:"";display:block;width:40px;height:5px;margin:7px auto 6px;border-radius:3px;background:var(--ink3);opacity:.5;}
+    #sheetHandle .hint{font-weight:500;color:var(--ink3);margin-left:6px;}
+    #sheetBody{display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+               -webkit-overflow-scrolling:touch;padding:2px 12px calc(12px + env(safe-area-inset-bottom));}
+    #sheetBody .panel{position:static;box-shadow:none;max-width:none;max-height:none;overflow:visible;
+                      border:1px solid #e2e8f0;border-radius:10px;}
+    #layers{min-width:0;columns:2;column-gap:14px;}
+    #layers .view-toggle,#layers .view-sep{column-span:all;}
+    #layers label{break-inside:avoid;}
+    #priceFilter .pf-chips{max-width:none;}
+    #legend{max-width:none;}
+    #legend .row{white-space:normal;}
+    #sheetBody footer{border:0;padding:2px 2px 0;line-height:1.5;}
+    /* 地图左下、右下角的控件（比例尺、版权）抬到抽屉上沿；底图加载失败提示同理 */
+    .leaflet-bottom{bottom:var(--sheet-h,44px);transition:bottom .24s ease;}
+    #tileNote{bottom:calc(var(--sheet-h,44px) + 22px);}
+    /* 弹窗别比屏幕宽，学区列表别占满整屏 */
+    .leaflet-popup-content{width:min(300px,calc(100vw - 84px)) !important;}
+    .pp-sc{max-height:32vh;}
+  }
 </style>
 </head>
 <body>
@@ -97,48 +131,53 @@
   </header>
   <div style="position:relative;flex:1;display:flex;">
     <div id="map"></div>
-    <div id="layers" class="panel">
-      <div class="view-toggle" id="viewToggle">
-        <button class="view-btn active" data-view="cell">板块级</button>
-        <button class="view-btn" data-view="town">街镇级</button>
+    <div id="sheet">
+      <button type="button" id="sheetHandle" aria-controls="sheetBody" aria-expanded="false" aria-label="展开图层、价位筛选和图例">图层 · 筛选 · 图例<span class="hint">▲</span></button>
+      <div id="sheetBody">
+      <div id="layers" class="panel">
+        <div class="view-toggle" id="viewToggle">
+          <button class="view-btn active" data-view="cell">板块级</button>
+          <button class="view-btn" data-view="town">街镇级</button>
+        </div>
+        <label><input type="checkbox" id="ckFill" checked> 区域填色</label>
+        <label><input type="checkbox" id="ckLbl" checked> 名称标签</label>
+        <label><input type="checkbox" id="ckPr" checked> 房价标签</label>
+        <hr class="view-sep">
+        <label><input type="checkbox" id="ckRings" checked> 环线公路</label>
+        <label><input type="checkbox" id="ckMetro" checked> 地铁线路</label>
+        <label><input type="checkbox" id="ckMetroPlanned" checked> 在建/规划地铁（2030前）</label>
+        <label><input type="checkbox" id="ckTown"> 街镇界参考</label>
       </div>
-      <label><input type="checkbox" id="ckFill" checked> 区域填色</label>
-      <label><input type="checkbox" id="ckLbl" checked> 名称标签</label>
-      <label><input type="checkbox" id="ckPr" checked> 房价标签</label>
-      <hr class="view-sep">
-      <label><input type="checkbox" id="ckRings" checked> 环线公路</label>
-      <label><input type="checkbox" id="ckMetro" checked> 地铁线路</label>
-      <label><input type="checkbox" id="ckMetroPlanned" checked> 在建/规划地铁（2030前）</label>
-      <label><input type="checkbox" id="ckTown"> 街镇界参考</label>
-    </div>
-    <!-- 价位筛选：板块价格区间与所填范围有重叠即算符合，其余变灰 -->
-    <div id="priceFilter" class="panel">
-      <div class="pf-title">价位筛选（万/㎡）</div>
-      <div class="pf-row">
-        <input type="number" id="pfMin" min="0" step="0.5" placeholder="最低"> –
-        <input type="number" id="pfMax" min="0" step="0.5" placeholder="最高">
-        <button id="pfClear">清除</button>
+      <!-- 价位筛选：板块价格区间与所填范围有重叠即算符合，其余变灰 -->
+      <div id="priceFilter" class="panel">
+        <div class="pf-title">价位筛选（万/㎡）</div>
+        <div class="pf-row">
+          <input type="number" id="pfMin" min="0" step="0.5" placeholder="最低"> –
+          <input type="number" id="pfMax" min="0" step="0.5" placeholder="最高">
+          <button id="pfClear">清除</button>
+        </div>
+        <div class="pf-chips" id="pfChips">
+          <button data-r="0,3">3万以下</button><button data-r="3,5">3–5万</button>
+          <button data-r="5,7">5–7万</button><button data-r="7,10">7–10万</button><button data-r="10,">10万以上</button>
+        </div>
+        <div id="pfCount"></div>
       </div>
-      <div class="pf-chips" id="pfChips">
-        <button data-r="0,3">3万以下</button><button data-r="3,5">3–5万</button>
-        <button data-r="5,7">5–7万</button><button data-r="7,10">7–10万</button><button data-r="10,">10万以上</button>
+      <div id="legend" class="panel">
+        <h4>交通线路</h4>
+        <div class="row"><span class="lineSw" style="border-color:var(--ring-inner)"></span>内环高架（实线）</div>
+        <div class="row"><span class="lineSw" style="border-color:var(--ring-mid)"></span>中环路（实线）</div>
+        <div class="row"><span class="lineSw" style="border-color:var(--ring-outer)"></span>外环高速 S20（实线）</div>
+        <div class="row"><span class="lineSw" style="border-color:var(--ring-sub)"></span>绕城高速 G1503（实线）</div>
+        <div class="row"><span class="lineSw dash" style="border-color:#e4002b"></span>地铁（虚线·已开通）</div>
+        <div class="row"><span class="lineSw dotted" style="border-color:#6B7A99"></span>在建/规划地铁（点线·2030前建成）</div>
+        <hr>
+        <h4>行政区</h4>
+        <div class="grid" id="distLegend"></div>
+        <hr>
+        <h4>学区对口</h4>
+        <div class="row" style="color:var(--ink3);line-height:1.45" id="scLegend">对口初中暂无数据</div>
       </div>
-      <div id="pfCount"></div>
-    </div>
-    <div id="legend" class="panel">
-      <h4>交通线路</h4>
-      <div class="row"><span class="lineSw" style="border-color:var(--ring-inner)"></span>内环高架（实线）</div>
-      <div class="row"><span class="lineSw" style="border-color:var(--ring-mid)"></span>中环路（实线）</div>
-      <div class="row"><span class="lineSw" style="border-color:var(--ring-outer)"></span>外环高速 S20（实线）</div>
-      <div class="row"><span class="lineSw" style="border-color:var(--ring-sub)"></span>绕城高速 G1503（实线）</div>
-      <div class="row"><span class="lineSw dash" style="border-color:#e4002b"></span>地铁（虚线·已开通）</div>
-      <div class="row"><span class="lineSw dotted" style="border-color:#6B7A99"></span>在建/规划地铁（点线·2030前建成）</div>
-      <hr>
-      <h4>行政区</h4>
-      <div class="grid" id="distLegend"></div>
-      <hr>
-      <h4>学区对口</h4>
-      <div class="row" style="color:var(--ink3);line-height:1.45" id="scLegend">对口初中暂无数据</div>
+      </div>
     </div>
     <div id="tileNote">底图瓦片加载失败（可能是网络限制）：板块、环线、地铁信息不受影响。</div>
   </div>
@@ -180,6 +219,55 @@ const tiles = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png
 tiles.on('tileload', ()=>{ if(!tileOk){tileOk=true; document.getElementById('tileNote').style.display='none';} });
 tiles.on('tileerror', ()=>{ if(!tileOk && ++tileFail>6) document.getElementById('tileNote').style.display='block'; });
 tiles.addTo(map);
+
+// ── 手机：底部抽屉（图层 / 价位筛选 / 图例）──
+// 默认只露一条把手；轻点或上下拖把手展开 / 收起；点地图、打开弹窗时自动收起。电脑上三块面板各自浮在地图上，这里不介入。
+(function(){
+  const mq = window.matchMedia('(max-width:860px)');
+  const sheet = document.getElementById('sheet'), handle = document.getElementById('sheetHandle');
+  const body = document.getElementById('sheetBody'), footer = document.querySelector('footer');
+  const HANDLE_H = 44;
+  let open = false, drag = null;
+  const openH = () => Math.round(Math.min(Math.max(sheet.parentElement.clientHeight * 0.6, 240), sheet.parentElement.clientHeight - 60));
+  function apply(){
+    if(!mq.matches){ sheet.style.removeProperty('--sheet-h'); document.documentElement.style.removeProperty('--sheet-h'); return; }
+    const h = (open ? openH() : HANDLE_H) + 'px';
+    sheet.style.setProperty('--sheet-h', h);
+    document.documentElement.style.setProperty('--sheet-h', h);   // 抬高 Leaflet 底部控件用
+    handle.setAttribute('aria-expanded', String(open));
+    handle.querySelector('.hint').textContent = open ? '▼' : '▲';
+    map.invalidateSize();
+  }
+  function setOpen(v){ open = v; apply(); }
+  function place(){   // 页脚的数据来源说明：手机上放到抽屉最后，省出一行地图
+    (mq.matches ? body : document.getElementById('app')).appendChild(footer);
+    apply();
+  }
+  handle.addEventListener('pointerdown', e=>{
+    if(!mq.matches) return;
+    drag = {y:e.clientY, h:sheet.getBoundingClientRect().height, moved:false};
+    handle.setPointerCapture(e.pointerId); sheet.classList.add('dragging');
+  });
+  handle.addEventListener('pointermove', e=>{
+    if(!drag) return;
+    const dy = e.clientY - drag.y;
+    if(Math.abs(dy) > 6) drag.moved = true;
+    const h = Math.min(Math.max(drag.h - dy, HANDLE_H), openH());
+    sheet.style.setProperty('--sheet-h', h + 'px'); document.documentElement.style.setProperty('--sheet-h', h + 'px');
+  });
+  function end(e){
+    if(!drag) return;
+    const d = drag; drag = null; sheet.classList.remove('dragging');
+    setOpen(d.moved ? e.clientY < d.y : !open);   // 轻点切换；拖动往上展开、往下收起
+  }
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+  handle.addEventListener('click', e=>{ if(e.detail === 0) setOpen(!open); });   // 键盘回车 / 空格
+  map.on('click popupopen', ()=>{ if(mq.matches && open) setOpen(false); });
+  window.addEventListener('resize', ()=>{ if(!drag) apply(); });
+  mq.addEventListener('change', place);
+  place();
+})();
 
 // ── 区域填色（价位筛选不符合的变灰）──
 function polyStyle(p, hover){
