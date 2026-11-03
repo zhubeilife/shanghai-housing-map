@@ -10,9 +10,10 @@
 流程：
   1. 读取 boards.py 里的板块房价（← 房价更新时只改这个文件）
   2. 读取 data/ 下的地理数据（区界、街镇边界、环线、地铁）
-  3. 以"板块点 + 无板块街镇的质心"为种子，在每个区内做
+  3. 读取 data/school_districts.json（学区对口，由 aggregate_schools.py 生成）
+  4. 以"板块点 + 无板块街镇的质心"为种子，在每个区内做
      Voronoi 切分，生成全市板块多边形（板块级细分）
-  4. 以 template.html 为模板，内联 Leaflet 与全部数据，
+  5. 以 template.html 为模板，内联 Leaflet 与全部数据，
      生成完全自包含的单文件地图：上海买房板块地图.html
 
 想调整板块边界：挪动/增删 boards.py 里的板块点，重新构建即可，
@@ -88,10 +89,12 @@ def build_cells(districts, towns):
     # 街镇是否已被板块覆盖：包含板块点，或与同区某板块同名
     #（例如"古美"板块点若恰好落在梅陇镇一侧，也不再给古美路街道生成兜底种子）
     town_has_board = {id(t): False for t in towns}
+    board_town = {}   # 板块名 → 所在街镇全名（用于挂学区对口数据）
     for name, dist, lat, lng, *_ in BOARDS:
         for t in towns:
             if t["dist"] == dist and any(point_in_ring(lng, lat, r) for r in t["rings"]):
                 town_has_board[id(t)] = True
+                board_town[name] = t["name"]
                 break
     for t in towns:
         if town_has_board[id(t)]:
@@ -100,6 +103,7 @@ def build_cells(districts, towns):
         for bname, dist, *_ in BOARDS:
             if dist == t["dist"] and (short in bname or bname in short):
                 town_has_board[id(t)] = True
+                board_town.setdefault(bname, t["name"])
                 break
 
     cells = []
@@ -110,12 +114,14 @@ def build_cells(districts, towns):
         for name, dist, lat, lng, lo, hi, major, zone in BOARDS:
             if dist == dname:
                 seeds.append({"name": name, "lat": lat, "lng": lng,
-                              "lo": lo, "hi": hi, "zone": zone, "est": False})
+                              "lo": lo, "hi": hi, "zone": zone, "est": False,
+                              "town": board_town.get(name)})
         for t in towns:
             if t["dist"] == dname and not town_has_board[id(t)]:
                 seeds.append({"name": t["name"].replace("街道", "").replace("镇", ""),
                               "lat": t["c"][0], "lng": t["c"][1],
-                              "lo": None, "hi": None, "zone": "", "est": True})
+                              "lo": None, "hi": None, "zone": "", "est": True,
+                              "town": t["name"]})
         if not seeds:
             continue
 
@@ -149,7 +155,7 @@ def build_cells(districts, towns):
             cells.append({"name": s["name"], "dist": dname,
                           "c": [s["lat"], s["lng"]], "a": round(area, 6),
                           "lo": s["lo"], "hi": s["hi"], "zone": s["zone"],
-                          "est": s["est"], "rings": rings})
+                          "est": s["est"], "tw": s.get("town"), "rings": rings})
     return cells
 
 
@@ -184,6 +190,17 @@ def main():
     metro = load("metro_lines.json")
     metro_planned = load("metro_planned.json")
     rings = load("ring_roads.json")
+
+    # ── 学区对口（浦东公办初中 2025 公示，由 aggregate_schools.py 聚合）──
+    school_path = os.path.join(HERE, "data", "school_districts.json")
+    if os.path.exists(school_path):
+        school = load("school_districts.json")
+        school_meta, school_towns = school["meta"], school["towns"]
+        print(f"学区对口：{school_meta['towns']} 个街镇 / {school_meta['schools']} 所学校"
+              f"（{school_meta['district']}·{school_meta['year']} {school_meta['grade']}）")
+    else:
+        school_meta, school_towns = {}, {}
+        print("⚠ 没有 data/school_districts.json，本次构建不含学区对口数据")
 
     # ── Voronoi 板块细分 ──
     cells = build_cells(districts, towns)
@@ -220,6 +237,8 @@ def main():
         f"const METRO_PLANNED={j(metro_planned)};\n"
         f"const RINGS={j(rings)};\n"
         f"const DIST_PRICE={j(DISTRICT_PRICE)};\n"
+        f"const SCHOOLMETA={j(school_meta)};\n"
+        f"const SCHOOLS={j(school_towns)};\n"
     )
 
     # ── 内联 Leaflet 与数据，输出单文件 ──

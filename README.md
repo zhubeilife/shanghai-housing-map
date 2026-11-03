@@ -13,15 +13,19 @@ shanghai-map-kit/
 ├── boards.py            ← ★ 房价数据（更新房价只改这里）
 ├── build_map.py         ← ★ 一键生成地图
 ├── update_prices.py     ← 用贝壳数据自动更新房价
+├── aggregate_schools.py ← 把浦东初中对口公示聚合成按街镇索引的 JSON
 ├── locate_boards.py     ← 用高德定位板块坐标（新增板块时用）
 ├── boards_edit.py       ← 上面两个脚本共用的 boards.py 改写函数
 ├── template.html        ← 页面模板（样式、交互逻辑）
 ├── fetch_geodata.py     ← 重新抓取地理数据（一般用不到）
-├── data/                ← 地理数据（已带好现成的）
+├── data/                ← 地理与学区数据（已带好现成的）
 │   ├── towns.json       ← 217 个街镇边界（OpenStreetMap，已抽稀）
 │   ├── districts.json   ← 16 个区界（阿里云 DataV）
 │   ├── ring_roads.json  ← 内环/中环/外环S20/郊环G1503
-│   └── metro_lines.json ← 地铁 1–18 号线走向及官方配色
+│   ├── metro_lines.json ← 地铁 1–18 号线走向及官方配色
+│   ├── metro_planned.json        ← 在建/规划地铁
+│   ├── pudong_junior_2025.jsonl  ← 浦东公办初中对口公示原始数据（逐条）
+│   └── school_districts.json     ← 上者聚合结果（← 地图读这个）
 └── vendor/              ← Leaflet 1.9.4（构建时内联进 HTML）
 ```
 
@@ -75,6 +79,35 @@ shanghai-map-kit/
 （点击街镇时弹窗里列出的细分价格就来自这一步），
 控制台会提示是否有坐标没落进任何街镇。
 
+## 学区对口（浦东新区，2025 年公办初中）
+
+点击板块或街镇，弹窗底部有「对口初中」一栏，列出该街镇所有初中和
+各自的对口地段（小区名 / 门牌号），点学校名展开明细。
+
+- **只覆盖浦东 36 个街镇**。数据来自浦东新区教育局 2025 年公办初中
+  招生地段公示（原始 HTML 在 `data/pudong_junior_2025.jsonl`，每条带
+  `source_url`），其他 15 个区没抓，弹窗里不会显示这一栏。
+- 数据只有**初中**（预备班），没有小学；只有对口地段名单，**没有坐标**，
+  所以只能按街镇聚合，不能按小区打点。
+- 板块级弹窗里的对口初中是按「板块点落在哪个街镇」取的，属于街镇口径，
+  不等于该板块专属对口。
+- 地段条目上的备注（统筹安排 / 单双号 / 已拆迁 / 信息变更）来自公示原文，
+  鼠标悬停能看到；`已拆迁`、`已动迁` 的地段没有删掉，和官方公示一致。
+
+更新（换年份、补区县时）：
+
+```bash
+# 1. 把新的逐条数据按同样字段写成 data/pudong_junior_2025.jsonl
+#    （grade/school_name/address/street_town/community/notes/source_url）
+# 2. 聚合：街镇名必须与 towns.json 完全一致，对不上的会打印警告并跳过
+python3 aggregate_schools.py
+# 3. 重新构建
+python3 build_map.py
+```
+
+`aggregate_schools.py` 的规则：小区名优先、为空时用门牌地址（`k` 字段
+区分 `c`/`a`）；同一学校下重复地段去重，单双号之类的备注合并。
+
 ## 新增板块 / 校正坐标
 
 坐标必须是 GPS/WGS-84（底图用的就是 WGS-84）。高德拾取、高德 API、
@@ -112,6 +145,27 @@ python3 fetch_geodata.py metro     # 只重抓地铁
 
 Overpass 公共服务器偶尔繁忙，脚本会自动换镜像重试；都失败就过几分钟再跑。
 
+## 回归测试
+
+改完 `template.html` / `build_map.py` / `aggregate_schools.py` 后跑一遍：
+
+```bash
+python3 tests/regression.py        # 全量（含与 HEAD 基线对比）
+python3 tests/regression.py -v     # 列出每一条通过的用例
+```
+
+覆盖五块：构建链路（三个产物一致、占位符已替换、体积合理）、
+与 `HEAD` 构建结果的逐项数据不变量（板块/街镇/环线/地铁/区价）、
+学区聚合（街镇全覆盖、去重、可重现）、缺 `school_districts.json` 时的降级，
+以及用无头 Chrome 真实打开地图跑交互（双视图切换、5 个图层开关、标签阈值、
+价位筛选、各类弹窗、学区折叠展开，并收集 JS 报错）。
+
+两个注意点：
+
+- 需要本机有 Chrome（或 `CHROME=/path/to/chrome`）；没有就跳过浏览器那部分。
+- 「两次聚合结果字节一致」会先读现有 `data/school_districts.json` 再跑一遍脚本对比，
+  所以手改过这个 JSON 会报错——它应当由 `aggregate_schools.py` 从原始 jsonl 生成。
+
 ## 改样式
 
 都在 `template.html` 里：
@@ -131,6 +185,9 @@ Overpass 公共服务器偶尔繁忙，脚本会自动换镜像重试；都失�
 
 - 房价为**挂牌参考价**（2026年8月，综合房天下/安居客整理），
   郊区部分为估算；实际成交因楼龄、房型、楼层差异很大，仅供筛选板块参考。
+- 学区对口数据来自浦东新区教育局 2025 年公办初中招生地段公示（`data/pudong_junior_2025.jsonl`
+  中每条带 `source_url`），仅浦东，且只到街镇口径；学校招生地段每年调整，
+  实际入学以当年区教育局公示和学校招生简章为准。
 - 街镇边界 © OpenStreetMap 贡献者（ODbL）；区界来自阿里云 DataV；
   底图瓦片 © OpenStreetMap，HOT 风格由 OSM France 托管（2026-10 起 CARTO 瓦片需 API Key 已停用；
   OSM 官方瓦片会拒绝本地 file:// 打开时的请求，所以没用）。分享时请保留地图右下角的版权注记。
