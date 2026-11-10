@@ -25,7 +25,8 @@ shanghai-map-kit/
 │   ├── metro_lines.json ← 地铁 1–18 号线走向及官方配色
 │   ├── metro_planned.json        ← 在建/规划地铁
 │   ├── pudong_junior_2025.jsonl  ← 浦东公办初中对口公示原始数据（逐条）
-│   └── school_districts.json     ← 上者聚合结果（← 地图读这个）
+│   ├── school_districts.json     ← 上者聚合结果（← 地图读这个）
+│   └── newhomes.json             ← 新房楼盘（房天下，含经纬度与单价；可选，见“更新新房数据”）
 └── vendor/              ← Leaflet 1.9.4（构建时内联进 HTML）
 ```
 
@@ -108,6 +109,33 @@ python3 build_map.py
 `aggregate_schools.py` 的规则：小区名优先、为空时用门牌地址（`k` 字段
 区分 `c`/`a`）；同一学校下重复地段去重，单双号之类的备注合并。
 
+## 更新新房数据
+
+地图右上角图层面板有一个「新房楼盘」开关，**默认关闭**：打开后按单价分档
+（<3 / 3–5 / 5–7 / 7–10 / ≥10 万/㎡，与价位筛选的区间一致）用小圆点画出
+全市新房楼盘，实心=在售、空心=待售，缺单价的用灰点；点击看详情，
+图层打开时板块/街镇弹窗末尾会多一句本区域新房统计（个数、在售数、在售均价）。
+
+数据不在本仓库生成，而在 `../shanghai-ai-housing`：
+
+```bash
+cd ../shanghai-ai-housing
+python3 scripts/newhome.py locate --limit 0   # 用高德定位楼盘坐标（有调用额度，可以分天续跑）
+python3 scripts/newhome.py export-map         # 写出本仓库的 data/newhomes.json
+
+cd ../shanghai-map-kit
+python3 build_map.py                          # 重新构建，控制台会打印新房统计
+```
+
+- 只显示有住宅证据的楼盘——住宅类标签、贝壳物业类型为住宅/别墅、或有户型信息；商办和查不清的不显示；个别楼盘在主仓库 `config/newhome_map_override.yaml` 人工指定。
+- `locate` 调用高德地理编码，“先定位、再导出”，额度用完就第二天再跑，
+  已定位的楼盘会保留（`meta.located` / `meta.total` 会显示在图例里）。
+- 坐标导出时已经转成 WGS-84，和底图一致，不需要再处理。
+- `build_map.py` 会先把每个楼盘落到所在的板块单元和街镇（`cell` / `town`
+  下标），落不进的为 `null`（这些点仍然上图，但不计入板块/街镇统计）。
+- **这个文件是可选的**：没有 `data/newhomes.json` 也能构建，只是日志会打一条
+  警告，产物里没有新房数据，图层面板也不显示这个开关。
+
 ## 新增板块 / 校正坐标
 
 坐标必须是 GPS/WGS-84（底图用的就是 WGS-84）。高德拾取、高德 API、
@@ -156,9 +184,10 @@ python3 tests/regression.py -v     # 列出每一条通过的用例
 
 覆盖五块：构建链路（三个产物一致、占位符已替换、体积合理）、
 与 `HEAD` 构建结果的逐项数据不变量（板块/街镇/环线/地铁/区价）、
-学区聚合（街镇全覆盖、去重、可重现）、缺 `school_districts.json` 时的降级，
-以及用无头 Chrome 真实打开地图跑交互（双视图切换、5 个图层开关、标签阈值、
-价位筛选、各类弹窗、学区折叠展开，并收集 JS 报错）。
+学区聚合（街镇全覆盖、去重、可重现）、缺 `school_districts.json` /
+`newhomes.json` 时的降级，以及用无头 Chrome 真实打开地图跑交互
+（双视图切换、各图层开关、标签阈值、价位筛选、新房图层与价位筛选联动、
+各类弹窗、学区折叠展开，并收集 JS 报错）。
 
 两个注意点：
 

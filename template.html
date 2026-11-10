@@ -11,6 +11,8 @@
     --ink:#1a202c; --ink2:#4a5568; --ink3:#8894a8;
     --surface:#ffffff; --panel:rgba(255,255,255,.96);
     --ring-inner:#c62828; --ring-mid:#ef6c00; --ring-outer:#1565c0; --ring-sub:#2e7d32;
+    /* 新房楼盘单价分档（饱和暖→紫的深色顺序色，与行政区多彩配色错开） */
+    --nh-1:#facc15; --nh-2:#f97316; --nh-3:#dc2626; --nh-4:#be185d; --nh-5:#6d28d9; --nh-none:#64748b;
   }
   html,body{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:var(--ink);}
   #app{display:flex;flex-direction:column;height:100%;}
@@ -20,18 +22,26 @@
   #map{flex:1;background:#f2f4f7;}
   .panel{position:absolute;z-index:900;background:var(--panel);border:1px solid #e2e8f0;border-radius:10px;
          box-shadow:0 2px 10px rgba(20,30,50,.10);font-size:12px;line-height:1.55;}
-  #layers{top:12px;right:12px;padding:10px 12px;min-width:136px;}
+  #rightCol{position:absolute;top:12px;right:12px;bottom:22px;z-index:900;display:flex;flex-direction:column;align-items:flex-end;gap:10px;pointer-events:none;}
+  #rightCol > .panel{position:static;pointer-events:auto;}
+  #layers{padding:10px 12px;min-width:136px;flex:none;}
   #layers label{display:flex;align-items:center;gap:6px;cursor:pointer;padding:2px 0;color:var(--ink2);}
   #layers input{accent-color:#334155;}
-  #legend{bottom:22px;right:12px;padding:10px 12px;max-width:216px;max-height:52vh;overflow:auto;}
-  #legend h4{margin:0 0 5px;font-size:12px;}
+  #legend{padding:10px 12px;max-width:216px;flex:0 1 auto;min-height:0;overflow:auto;max-height:none;font-size:11.5px;}
+  #legend h4{margin:0 0 3px;font-size:11.5px;}
   #legend .row{display:flex;align-items:center;gap:7px;margin:2px 0;color:var(--ink2);white-space:nowrap;}
-  #legend .grid{display:grid;grid-template-columns:1fr 1fr;column-gap:10px;}
+  #legend .grid{display:grid;grid-template-columns:1fr 1fr;column-gap:10px;row-gap:1px;}
+  #legend .grid.g4{grid-template-columns:repeat(4,1fr);column-gap:6px;row-gap:2px;}
+  #legend .grid.g4 .row{font-size:11px;gap:4px;margin:0;}
+  #legend .grid.g4 .swArea{width:10px;height:10px;border-radius:2px;}
+  #legend .grid.g3{grid-template-columns:repeat(3,1fr);column-gap:5px;row-gap:2px;}
+  #legend .grid.g3 .row{font-size:10.5px;gap:4px;margin:0;}
+  #legend .note{font-size:10.5px;color:var(--ink3);line-height:1.45;margin:2px 0;}
   .swArea{width:12px;height:12px;border-radius:3px;border:1px solid rgba(0,0,0,.15);flex:none;}
   .lineSw{width:22px;height:0;border-top:4px solid;border-radius:2px;flex:none;}
   .lineSw.dash{border-top-style:dashed;border-top-width:3px;}
   .lineSw.dotted{border-top-style:dotted;border-top-width:3px;}
-  #legend hr{border:none;border-top:1px solid #e8edf3;margin:7px 0;}
+  #legend hr{border:none;border-top:1px solid #e8edf3;margin:5px 0;}
   /* 价位筛选（左上，缩放按钮右侧） */
   #priceFilter{top:12px;left:54px;padding:8px 10px;}
   .pf-title{font-weight:600;color:var(--ink);margin-bottom:3px;}
@@ -84,6 +94,13 @@
   .pp-area.a{background:#f8fafc;color:var(--ink3);}
   .pp-area.n{box-shadow:inset 0 -2px 0 #f3d19b;}
   .pp-more{font-size:11px;color:var(--ink3);padding-left:13px;}
+  /* 新房楼盘：图例圆点、名称标签、板块弹窗里的本区域统计 */
+  .nhSw{width:11px;height:11px;border-radius:50%;border:2px solid #ffffff;box-shadow:0 0 0 1px rgba(0,0,0,.25);flex:none;}
+  .leaflet-tooltip.nhLbl{background:rgba(255,255,255,.92);border:1px solid #cbd5e1;border-radius:4px;
+    padding:0 4px;font-size:11px;font-weight:600;color:#1f2937;white-space:nowrap;
+    box-shadow:0 1px 2px rgba(0,0,0,.15);pointer-events:none;}
+  .leaflet-tooltip.nhLbl::before{display:none;}
+  .pp-nh{margin-top:7px;padding-top:6px;border-top:1px solid #e6eaf0;font-size:12.5px;color:var(--ink2);}
   #tileNote{position:absolute;left:12px;bottom:22px;z-index:900;background:rgba(255,251,235,.95);border:1px solid #f4e3b2;
             border-radius:8px;padding:6px 10px;font-size:11px;color:#8a6d1a;display:none;max-width:250px;}
   footer{padding:5px 16px;background:var(--surface);border-top:1px solid #e6eaf0;font-size:10.5px;color:var(--ink3);}
@@ -105,21 +122,27 @@
     #sheetHandle .hint{font-weight:500;color:var(--ink3);margin-left:6px;}
     #sheetBody{display:flex;flex-direction:column;gap:10px;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
                -webkit-overflow-scrolling:touch;padding:2px 12px calc(12px + env(safe-area-inset-bottom));}
+    #rightCol{display:contents;}
     #sheetBody .panel{position:static;box-shadow:none;max-width:none;max-height:none;overflow:visible;
                       border:1px solid #e2e8f0;border-radius:10px;}
-    #layers{min-width:0;columns:2;column-gap:14px;}
+    #layers{order:1;min-width:0;columns:2;column-gap:14px;}
     #layers .view-toggle,#layers .view-sep{column-span:all;}
     #layers label{break-inside:avoid;}
+    #priceFilter{order:2;}
     #priceFilter .pf-chips{max-width:none;}
-    #legend{max-width:none;}
+    #legend{order:3;max-width:none;min-height:auto;}
     #legend .row{white-space:normal;}
-    #sheetBody footer{border:0;padding:2px 2px 0;line-height:1.5;}
+    #sheetBody footer{order:4;border:0;padding:2px 2px 0;line-height:1.5;}
     /* 地图左下、右下角的控件（比例尺、版权）抬到抽屉上沿；底图加载失败提示同理 */
     .leaflet-bottom{bottom:var(--sheet-h,44px);transition:bottom .24s ease;}
     #tileNote{bottom:calc(var(--sheet-h,44px) + 22px);}
     /* 弹窗别比屏幕宽，学区列表别占满整屏 */
     .leaflet-popup-content{width:min(300px,calc(100vw - 84px)) !important;}
     .pp-sc{max-height:32vh;}
+    /* 新房：名称标签小一号，图例圆点小一号，别把两列布局撑破 */
+    .leaflet-tooltip.nhLbl{font-size:10px;}
+    .nhSw{width:9px;height:9px;}
+    #layers #lbNew{flex-wrap:wrap;}
   }
 </style>
 </head>
@@ -134,20 +157,6 @@
     <div id="sheet">
       <button type="button" id="sheetHandle" aria-controls="sheetBody" aria-expanded="false" aria-label="展开图层、价位筛选和图例">图层 · 筛选 · 图例<span class="hint">▲</span></button>
       <div id="sheetBody">
-      <div id="layers" class="panel">
-        <div class="view-toggle" id="viewToggle">
-          <button class="view-btn active" data-view="cell">板块级</button>
-          <button class="view-btn" data-view="town">街镇级</button>
-        </div>
-        <label><input type="checkbox" id="ckFill" checked> 区域填色</label>
-        <label><input type="checkbox" id="ckLbl" checked> 名称标签</label>
-        <label><input type="checkbox" id="ckPr" checked> 房价标签</label>
-        <hr class="view-sep">
-        <label><input type="checkbox" id="ckRings" checked> 环线公路</label>
-        <label><input type="checkbox" id="ckMetro" checked> 地铁线路</label>
-        <label><input type="checkbox" id="ckMetroPlanned" checked> 在建/规划地铁（2030前）</label>
-        <label><input type="checkbox" id="ckTown"> 街镇界参考</label>
-      </div>
       <!-- 价位筛选：板块价格区间与所填范围有重叠即算符合，其余变灰 -->
       <div id="priceFilter" class="panel">
         <div class="pf-title">价位筛选（万/㎡）</div>
@@ -162,20 +171,40 @@
         </div>
         <div id="pfCount"></div>
       </div>
+      <div id="rightCol">
+      <div id="layers" class="panel">
+        <div class="view-toggle" id="viewToggle">
+          <button class="view-btn active" data-view="cell">板块级</button>
+          <button class="view-btn" data-view="town">街镇级</button>
+        </div>
+        <label><input type="checkbox" id="ckFill" checked> 区域填色</label>
+        <label><input type="checkbox" id="ckLbl" checked> 名称标签</label>
+        <label><input type="checkbox" id="ckPr" checked> 房价标签</label>
+        <hr class="view-sep">
+        <label><input type="checkbox" id="ckRings" checked> 环线公路</label>
+        <label><input type="checkbox" id="ckMetro" checked> 地铁线路</label>
+        <label><input type="checkbox" id="ckMetroPlanned" checked> 在建/规划地铁（2030前）</label>
+        <label><input type="checkbox" id="ckTown"> 街镇界参考</label>
+        <label id="lbNew"><input type="checkbox" id="ckNew"> 🏠 新房楼盘</label>
+      </div>
       <div id="legend" class="panel">
         <h4>交通线路</h4>
-        <div class="row"><span class="lineSw" style="border-color:var(--ring-inner)"></span>内环高架（实线）</div>
-        <div class="row"><span class="lineSw" style="border-color:var(--ring-mid)"></span>中环路（实线）</div>
-        <div class="row"><span class="lineSw" style="border-color:var(--ring-outer)"></span>外环高速 S20（实线）</div>
-        <div class="row"><span class="lineSw" style="border-color:var(--ring-sub)"></span>绕城高速 G1503（实线）</div>
-        <div class="row"><span class="lineSw dash" style="border-color:#e4002b"></span>地铁（虚线·已开通）</div>
-        <div class="row"><span class="lineSw dotted" style="border-color:#6B7A99"></span>在建/规划地铁（点线·2030前建成）</div>
+        <div class="grid">
+          <div class="row"><span class="lineSw" style="border-color:var(--ring-inner)"></span>内环高架</div>
+          <div class="row"><span class="lineSw" style="border-color:var(--ring-mid)"></span>中环路</div>
+          <div class="row"><span class="lineSw" style="border-color:var(--ring-outer)"></span>外环 S20</div>
+          <div class="row"><span class="lineSw" style="border-color:var(--ring-sub)"></span>绕城 G1503</div>
+          <div class="row"><span class="lineSw dash" style="border-color:#e4002b"></span>地铁</div>
+          <div class="row"><span class="lineSw dotted" style="border-color:#6B7A99"></span>在建/规划地铁</div>
+        </div>
+        <div class="note">公路实线 · 地铁虚线 · 规划点线（2030前）</div>
         <hr>
         <h4>行政区</h4>
-        <div class="grid" id="distLegend"></div>
-        <hr>
-        <h4>学区对口</h4>
-        <div class="row" style="color:var(--ink3);line-height:1.45" id="scLegend">对口初中暂无数据</div>
+        <div class="grid g4" id="distLegend"></div>
+        <hr id="nhHr">
+        <h4 id="nhH4">新房楼盘</h4>
+        <div id="nhLegend"></div>
+      </div>
       </div>
       </div>
     </div>
@@ -183,7 +212,7 @@
   </div>
   <footer>
     <span id="verInfo" style="font-weight:600;"></span>
-    数据：街镇边界 © OpenStreetMap 贡献者；板块参考价取自贝壳 <span class="dataDateCn"></span>上榜小区挂牌均价（25%–75%分位，非成交价），贝壳商圈对不上的少数板块取房天下同期小区均价，实际成交因楼龄房型差异较大；区级均价：房天下；行政边界：阿里云 DataV。<span id="scFooter"></span>
+    数据：街镇边界 © OpenStreetMap 贡献者；板块参考价取自贝壳 <span class="dataDateCn"></span>上榜小区挂牌均价（25%–75%分位，非成交价），贝壳商圈对不上的少数板块取房天下同期小区均价，实际成交因楼龄房型差异较大；区级均价：房天下；行政边界：阿里云 DataV。<span id="scFooter"></span><span id="nhFooter"></span>
   </footer>
 </div>
 <script>
@@ -269,10 +298,12 @@ tiles.addTo(map);
   place();
 })();
 
-// ── 区域填色（价位筛选不符合的变灰）──
+// ── 区域填色（价位筛选不符合的变灰；新房图层打开时整体调淡以突出圆点）──
+let fillDim = false;
 function polyStyle(p, hover){
   if(p._out) return {fillColor:'#cbd5e1', fillOpacity:hover?.3:.18, weight:p._w};
-  return {fillColor:p._c, fillOpacity:hover?.72:.5, weight:hover?2:p._w};
+  const fo = fillDim ? (hover ? .45 : .28) : (hover ? .72 : .5);
+  return {fillColor:p._c, fillOpacity:fo, weight:hover?2:p._w};
 }
 function makePoly(rings, dist, w, lo, hi){
   const poly = L.polygon(rings, {color:'#ffffff', weight:w, opacity:.9, fillColor:DCOLOR[dist]||'#999', fillOpacity:.5});
@@ -467,6 +498,7 @@ function applyFilter(){
   });
   refreshLabels();
   updateFilterCount();
+  applyNewHomeFilter();   // 新房楼盘同步变淡（图层关闭时函数内直接返回）
 }
 function updateFilterCount(){
   const ps = curView==='cell' ? cellPolys : townPolys;
@@ -474,6 +506,9 @@ function updateFilterCount(){
   document.getElementById('pfCount').textContent = on
     ? `符合 ${ps.filter(p=>!p._out).length} / ${ps.length} 个${curView==='cell'?'板块':'街镇'}`
     : '填写价位或点选区间';
+  // 新房图层打开且筛选开启时追加新房符合数
+  if(document.getElementById('ckNew').checked && on && nhPoints.length)
+    document.getElementById('pfCount').textContent += ` · 新房 ${nhPassCount()} / ${nhPoints.length} 个`;
 }
 pfMin.addEventListener('input', applyFilter);
 pfMax.addEventListener('input', applyFilter);
@@ -540,13 +575,180 @@ Object.entries(METRO_PLANNED).forEach(([name,l])=>{
 document.getElementById('distLegend').innerHTML =
   Object.entries(DCOLOR).map(([d,c])=>`<div class="row"><span class="swArea" style="background:${c}"></span>${d}</div>`).join('');
 
-// ── 图例/页脚：学区对口数据说明（只有浦东有公示数据可用）──
+// ── 页脚：学区对口数据说明（只有浦东有公示数据可用）──
 if(SCT.towns){
-  document.getElementById('scLegend').innerHTML =
-    `${SCT.district||'浦东'} ${SCT.year||''} 公办${SCT.grade||'初中'}公示<br>` +
-    `${SCT.towns} 个街镇 / ${SCT.schools} 所学校，点击区域展开对口地段`;
   document.getElementById('scFooter').innerHTML =
     `<br>学区对口：${SCT.source||''}（${SCT.towns} 个街镇，仅${SCT.district||'浦东'}），供参考，以当年招生政策为准。`;
+}
+
+// ── 新房楼盘（房天下；默认关闭，按单价着色，跟价位筛选联动）──
+// 数据由 build_map.py 注入：NEWHOMES[*].cell / .town 是所属板块单元、街镇的下标（落不进为 null）
+const NHM = (typeof NEWHOMEMETA !== 'undefined') ? NEWHOMEMETA : {};
+const NH = (typeof NEWHOMES !== 'undefined') ? NEWHOMES : [];
+const NH_GRAY = getCss('--nh-none') || '#94a3b8';
+const NH_C = ['--nh-1','--nh-2','--nh-3','--nh-4','--nh-5'].map(v=>getCss(v) || '#f97316');
+const NH_TXT = ['3万以下','3–5万','5–7万','7–10万','10万以上'];   // 与价位筛选 chip 一致
+function nhBand(p){   // 单价（元/㎡）→ 档位 0..4；无价 -1
+  if(p == null) return -1;
+  const w = p/10000;
+  return w < 3 ? 0 : w < 5 ? 1 : w < 7 ? 2 : w < 10 ? 3 : 4;
+}
+function nhColor(p){ const b = nhBand(p); return b < 0 ? NH_GRAY : NH_C[b]; }
+function nhFade(hex, a){   // 档位色转带透明度的浅填充，用于图例「浅色填充 = 待售」
+  if(!/^#[0-9a-f]{6}$/i.test(hex)) return hex;
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+const nhSold = h => h.status !== '待售';
+const nhWan = h => h.unit_price == null ? null : h.unit_price/10000;
+
+function nhPopup(h){
+  const rows = [], wan = nhWan(h);
+  let area = '';
+  if(h.area_min != null) area = (h.area_max != null && h.area_max !== h.area_min)
+    ? `${h.area_min}–${h.area_max} ㎡` : `${h.area_min} ㎡`;
+  if(h.total_wan != null) rows.push(`<li><span>总价起</span><span>${h.total_wan} 万</span></li>`);
+  if(area) rows.push(`<li><span>面积</span><span>${area}</span></li>`);
+  if(h.rooms) rows.push(`<li><span>户型</span><span>${esc(h.rooms)}</span></li>`);
+  if(h.delivery) rows.push(`<li><span>交付</span><span>${esc(h.delivery)}</span></li>`);
+  if(h.metro && h.metro.name) rows.push(`<li><span>地铁</span><span>${esc(h.metro.name)}${h.metro.minutes != null ? ` 步行 ${h.metro.minutes} 分钟` : ''}</span></li>`);
+  if(h.tags) rows.push(`<li><span>类型</span><span style="text-align:right;max-width:66%">${esc(h.tags)}</span></li>`);
+  let tail = '';
+  if(h.price_date) tail += `<div class="pp-note">报价日期 ${esc(h.price_date)}</div>`;
+  if(h.stale) tail += `<div class="pp-note">价格久未更新，可能已无房</div>`;
+  if(h.approx) tail += `<div class="pp-note">位置为道路级估计，仅供参考</div>`;
+  if(h.url) tail += `<div class="pp-note"><a href="${esc(h.url)}" target="_blank" rel="noopener">房天下详情 ↗</a></div>`;
+  return `<div class="pp-title">${esc(h.name)}</div><div class="pp-sub">${esc(distLabel(h.district))} · ${esc(h.status)}</div>` +
+    `<div class="pp-price">${wan == null ? '价格待定' : wan.toFixed(1) + ' 万/㎡'}</div>` +
+    (rows.length ? `<ul class="pp-bd">${rows.join('')}</ul>` : '') + tail;
+}
+
+// 新房圆点必须用 SVG 且放进独立 pane（zIndex 450，高于 overlayPane 的 400、低于
+// markerPane 600 / tooltipPane 650 / popupPane 700）。不能用 canvas：canvas 是一整块
+// 可交互元素，会盖住下面的板块，点空白处不再弹板块弹窗；Leaflet 的 SVG 根节点
+// pointer-events:none，只有圆点 path 自身可交互，空白处会穿透到下面的板块。
+map.createPane('nhPane');
+map.getPane('nhPane').style.zIndex = 450;
+const nhRenderer = L.svg({pane:'nhPane'});
+const newHomeLayer = L.layerGroup();   // 默认不上图，勾选 ckNew 才 addTo(map)
+const nhPoints = [];   // {mk, h}
+NH.forEach(h=>{
+  if(h.lat == null || h.lng == null) return;
+  const sold = nhSold(h), col = nhColor(h.unit_price);
+  // approx（坐标只精确到道路）的点半径小 1，与精确点位区分开
+  // 白色描边圆点：在售实色、待售浅色，白圈在任何区色上都显眼
+  const mk = L.circleMarker([h.lat, h.lng], {renderer:nhRenderer, pane:'nhPane',
+    bubblingMouseEvents:false, radius: h.approx ? 5 : 6,
+    color: '#ffffff', weight: 2, opacity:1,
+    fillColor: col, fillOpacity: sold ? 1 : .45});
+  mk._out = false;
+  mk.bindPopup(nhPopup(h), {maxWidth:300});
+  mk.addTo(newHomeLayer);
+  nhPoints.push({mk, h});
+});
+
+// 名称：zoom≥13 且图层打开时显示；半径 6，zoom≥14 时 8，approx 点再小 1，
+// 不符合价位的点再小 2（最小 3，与板块变灰保持一致）
+// （单独挂 zoomend，不动 refreshLabels）
+function refreshNewHomeLabels(){
+  const on = document.getElementById('ckNew').checked && map.hasLayer(newHomeLayer);
+  const z = map.getZoom(), want = on && z >= 13;
+  nhPoints.forEach(o=>{
+    const m = o.mk, base = (z >= 14 ? 8 : 6) - (o.h.approx ? 1 : 0);
+    const r = m._out ? Math.max(3, base - 2) : base;
+    m.setRadius(r);
+    const show = want && !m._out;
+    const tip = m.getTooltip();
+    if(show && !tip) m.bindTooltip(o.h.name, {permanent:true, direction:'right', className:'nhLbl', offset:[r+3, 0]});
+    else if(!show && tip) m.unbindTooltip();
+  });
+}
+map.on('zoomend', refreshNewHomeLabels);
+
+// 价位筛选联动：单价不在区间或无单价的点变淡，且不显示名称
+function nhPassCount(){
+  const min = pfMin.value==='' ? -Infinity : +pfMin.value;
+  const max = pfMax.value==='' ? Infinity : +pfMax.value;
+  return nhPoints.filter(o=>{ const w = nhWan(o.h); return w != null && w >= min && w <= max; }).length;
+}
+function applyNewHomeFilter(){
+  if(!document.getElementById('ckNew').checked) return;   // 图层关闭时不做任何事
+  const on = pfMin.value!=='' || pfMax.value!=='';
+  const min = pfMin.value==='' ? -Infinity : +pfMin.value;
+  const max = pfMax.value==='' ? Infinity : +pfMax.value;
+  nhPoints.forEach(o=>{
+    const w = nhWan(o.h), sold = nhSold(o.h), col = nhColor(o.h.unit_price);
+    const out = on && (w == null || w < min || w > max);
+    o.mk._out = out;
+    if(out){
+      // 与板块变灰保持一致：灰底、描边减淡；半径由 refreshNewHomeLabels 统一缩小
+      o.mk.setStyle({color:'#ffffff', opacity:.6, fillColor:'#cbd5e1', fillOpacity:.6});
+    } else {
+      o.mk.setStyle({color:'#ffffff', opacity:1, fillColor:col, fillOpacity:sold ? 1 : .45});
+    }
+  });
+  // 符合的点压在灰点上面（灰点放底层），点击灰点仍可弹楼盘弹窗
+  nhPoints.forEach(o=>{ if(o.mk._out) o.mk.bringToBack(); else o.mk.bringToFront(); });
+  refreshNewHomeLabels();
+}
+
+// 开关：勾选时按当前价位筛选上色再上图，同时调淡区域填色以突出新房圆点；关掉立刻移除
+const ckNew = document.getElementById('ckNew');
+ckNew.addEventListener('change', ()=>{
+  fillDim = ckNew.checked;
+  cellPolys.concat(townPolys).forEach(p=>p.setStyle(polyStyle(p, false)));
+  if(ckNew.checked){ newHomeLayer.addTo(map); applyNewHomeFilter(); }
+  else map.removeLayer(newHomeLayer);
+  refreshNewHomeLabels();
+  updateFilterCount();
+});
+
+// 板块 / 街镇弹窗末尾追加本区域新房统计（不改 bindPopup 的原内容，图层关闭时不追加）
+const nhPolyIdx = new Map();
+cellPolys.forEach((p,i)=>nhPolyIdx.set(p, ['cell', i]));
+townPolys.forEach((p,i)=>nhPolyIdx.set(p, ['town', i]));
+map.on('popupopen', e=>{
+  const src = e.popup._source, hit = src && nhPolyIdx.get(src);
+  if(!hit) return;
+  const pop = e.popup.getElement && e.popup.getElement();
+  const box = pop && pop.querySelector('.leaflet-popup-content');
+  if(!box) return;
+  const old = box.querySelector('.pp-nh');
+  if(old) old.remove();   // 弹窗 DOM 会复用，先清掉上次追加的
+  if(!ckNew.checked || !map.hasLayer(newHomeLayer)) return;
+  const list = NH.filter(h=>h[hit[0]] === hit[1]);
+  if(!list.length) return;
+  const soldN = list.filter(nhSold).length;
+  const ps = list.filter(nhSold).map(nhWan).filter(w=>w != null);
+  const avg = ps.length ? (ps.reduce((a,b)=>a+b,0)/ps.length).toFixed(1) : null;
+  const div = document.createElement('div');
+  div.className = 'pp-nh';
+  div.innerHTML = `本${hit[0]==='cell' ? '板块' : '街镇'}新房 <b>${list.length}</b> 个（在售 ${soldN}${avg ? `，在售均价 ${avg} 万/㎡` : ''}）`;
+  box.appendChild(div);
+});
+
+// 图例 / 页脚（没有新房数据时整节隐藏）
+if(!NH.length){
+  document.getElementById('lbNew').style.display = 'none';
+  ['nhHr','nhH4','nhLegend'].forEach(id=>document.getElementById(id).style.display = 'none');
+} else {
+  // 来源说明：优先按 meta.count / total / excluded 精确描述不显示的原因，字段缺失时回退
+  const nhSrcNote = ()=>{
+    const ft = esc(NHM.fetched_at||'');
+    if(NHM.count != null && NHM.total != null && NHM.excluded != null){
+      const miss = NHM.total - NHM.count - NHM.excluded;
+      return `房天下 ${ft}：上图 ${NHM.count} 个（全市 ${NHM.total} 个，其中非住宅 ${NHM.excluded} 个、` +
+        `未能准确定位 ${miss} 个未显示）`;
+    }
+    return `房天下 ${ft}，已定位 ${NHM.located!=null?NHM.located:NH.length} / ${NHM.total!=null?NHM.total:NH.length} 个`;
+  };
+  const bands = NH_C.map((c,i)=>`<div class="row"><span class="nhSw" style="background:${c}"></span>${NH_TXT[i]}</div>`).join('');
+  document.getElementById('nhLegend').innerHTML =
+    `<div class="grid g3">${bands}<div class="row"><span class="nhSw" style="background:${NH_GRAY}"></span>价格待定</div></div>` +
+    `<div class="row"><span class="nhSw" style="background:${NH_C[2]}"></span>实心=在售<span class="nhSw" style="background:${nhFade(NH_C[2], .45)}"></span>浅色=待售</div>` +
+    `<div class="note">${nhSrcNote()}</div>`;
+  document.getElementById('nhFooter').innerHTML =
+    `<br>新房：房天下 ${esc(NHM.fetched_at||'')} 在售/待售楼盘报价，坐标经高德定位，仅供参考。`;
 }
 
 // ── 开关 ──

@@ -11,9 +11,11 @@
   1. 读取 boards.py 里的板块房价（← 房价更新时只改这个文件）
   2. 读取 data/ 下的地理数据（区界、街镇边界、环线、地铁）
   3. 读取 data/school_districts.json（学区对口，由 aggregate_schools.py 生成）
-  4. 以"板块点 + 无板块街镇的质心"为种子，在每个区内做
+  4. 读取 data/newhomes.json（新房楼盘，可选；由新房子项目仓库导出），
+     并给每个楼盘标出所属板块单元与街镇
+  5. 以"板块点 + 无板块街镇的质心"为种子，在每个区内做
      Voronoi 切分，生成全市板块多边形（板块级细分）
-  5. 以 template.html 为模板，内联 Leaflet 与全部数据，
+  6. 以 template.html 为模板，内联 Leaflet 与全部数据，
      生成完全自包含的单文件地图：上海买房板块地图.html
 
 想调整板块边界：挪动/增删 boards.py 里的板块点，重新构建即可，
@@ -217,6 +219,28 @@ def main():
     n_matched = sum(1 for t in town_data if t["boards"])
     print(f"街镇级视图：{len(town_data)} 个街镇（{n_matched} 个含有板块价格）")
 
+    # ── 新房楼盘（房天下，由 ../shanghai-ai-housing 的 newhome.py export-map 生成；可选）──
+    nh_path = os.path.join(HERE, "data", "newhomes.json")
+    if os.path.exists(nh_path):
+        nh = load("newhomes.json")
+        nh_meta, nh_items = nh.get("meta", {}), nh["items"]
+    else:
+        nh_meta, nh_items = {}, []
+        print("⚠ 没有 data/newhomes.json，本次构建不含新房数据")
+    # 归属：cell = 所在板块单元下标，town = 所在街镇下标（落不进为 null）
+    n_in_cell = 0
+    for it in nh_items:
+        lng, lat = it["lng"], it["lat"]
+        it["cell"] = next((i for i, c in enumerate(cells)
+                           if any(point_in_ring(lng, lat, r) for r in c["rings"])), None)
+        it["town"] = next((i for i, t in enumerate(town_data)
+                           if any(point_in_ring(lng, lat, r) for r in t["rings"])), None)
+        n_in_cell += it["cell"] is not None
+    if nh_items:
+        n_sold = sum(1 for it in nh_items if it.get("status") == "在售")
+        print(f"新房楼盘：{len(nh_items)} 个（在售 {n_sold} / 待售 {len(nh_items) - n_sold}），"
+              f"{len(nh_items) - n_in_cell} 个未落入板块单元")
+
     # ── 街镇界参考线（浅色描边图层，默认关闭）──
     town_lines = [r for t in towns for r in t["rings"]]
 
@@ -239,6 +263,8 @@ def main():
         f"const DIST_PRICE={j(DISTRICT_PRICE)};\n"
         f"const SCHOOLMETA={j(school_meta)};\n"
         f"const SCHOOLS={j(school_towns)};\n"
+        f"const NEWHOMEMETA={j(nh_meta)};\n"
+        f"const NEWHOMES={j(nh_items)};\n"
     )
 
     # ── 内联 Leaflet 与数据，输出单文件 ──

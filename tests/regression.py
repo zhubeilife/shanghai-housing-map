@@ -12,9 +12,9 @@
   A. 构建链路      aggregate_schools.py / build_map.py 能否跑通、输出是否一致
   B. 数据不变量    与 HEAD 版本构建出的地图逐项比对（板块/街镇/环线/地铁/区价）
   C. 学区聚合      36 街镇全覆盖、去重、确定性（两次跑字节一致）
-  D. 降级          删掉 school_districts.json 后仍能构建，且不渲染学区区块
+  D. 降级          删掉 school_districts.json / newhomes.json 后仍能构建，且不渲染对应区块
   E. 浏览器行为    无头 Chrome 实际打开地图：视图切换 / 各图层开关 / 标签阈值 /
-                   价位筛选 / 弹窗内容 / 学区折叠展开，并收集 JS 报错
+                   价位筛选 / 弹窗内容 / 学区折叠展开 / 新房图层，并收集 JS 报错
 
 需要本机有 Chrome（或设置环境变量 CHROME 指向可执行文件）。
 """
@@ -190,6 +190,8 @@ def test_baseline(html_now):
         ok("数据月份未被动", ma["dataDate"] == mb["dataDate"], (ma["dataDate"], mb["dataDate"]))
         ok("产物包含 SCHOOLS / SCHOOLMETA 常量",
            extract(now, "SCHOOLS") is not None and extract(now, "SCHOOLMETA") is not None)
+        ok("产物包含 NEWHOMES / NEWHOMEMETA 常量",
+           extract(now, "NEWHOMES") is not None and extract(now, "NEWHOMEMETA") is not None)
         same = ma["version"] == mb["version"]
         print(f"   基线 v{ma['version']} → 当前 v{mb['version']}"
               + ("（同版本，说明工作区已提交）" if same else ""))
@@ -218,6 +220,29 @@ def test_no_school_file():
             h = open(os.path.join(tmp, "上海买房板块地图.html"), encoding="utf-8").read()
             ok("SCHOOLS 为空对象", extract(h, "SCHOOLS") == {})
             ok("SCHOOLMETA 为空对象", extract(h, "SCHOOLMETA") == {})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_no_newhome_file():
+    section("D. 无新房数据时降级")
+    tmp = tempfile.mkdtemp(prefix="nonh-")
+    try:
+        for f in ("build_map.py", "boards.py", "template.html"):
+            shutil.copy2(os.path.join(ROOT, f), tmp)
+        shutil.copytree(os.path.join(ROOT, "vendor"), os.path.join(tmp, "vendor"))
+        os.makedirs(os.path.join(tmp, "data"))
+        for f in os.listdir(os.path.join(ROOT, "data")):
+            if f != "newhomes.json":
+                shutil.copy2(os.path.join(ROOT, "data", f), os.path.join(tmp, "data", f))
+        r = build(tmp)
+        ok("缺 newhomes.json 仍构建成功", r is not None and r.returncode == 0,
+           r.stderr[-400:] if r else "构建失败")
+        if r is not None and r.returncode == 0:
+            ok("构建日志给出警告并继续", "没有 data/newhomes.json" in r.stdout, r.stdout)
+            h = open(os.path.join(tmp, "上海买房板块地图.html"), encoding="utf-8").read()
+            ok("NEWHOMES 为空数组", extract(h, "NEWHOMES") == [])
+            ok("NEWHOMEMETA 为空对象", extract(h, "NEWHOMEMETA") == {})
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -426,14 +451,206 @@ BROWSER_JS = r"""
   function step7(){   // 图例 / 页脚
     ok('区图例 16 个', document.querySelectorAll('#distLegend .row').length === 16,
        document.querySelectorAll('#distLegend .row').length);
-    const sc = document.getElementById('scLegend');
+    ok('学区图例已移除', document.getElementById('scLegend') === null);
     if (typeof SCHOOLS !== 'undefined' && Object.keys(SCHOOLS).length) {
-      ok('图例标注了学区数据范围', /36 个街镇/.test(sc.textContent), sc.textContent);
-      ok('页脚标注了学区数据来源', /教育局/.test(document.getElementById('scFooter').textContent));
+      const sf = document.getElementById('scFooter');
+      ok('页脚标注了学区数据范围', /36 个街镇/.test(sf.textContent), sf.textContent);
+      ok('页脚标注了学区数据来源', /教育局/.test(sf.textContent));
     }
     ok('版本徽标已渲染', /v\d/.test(document.getElementById('verBadge').textContent),
        document.getElementById('verBadge').textContent);
-    done();
+    const lb = document.getElementById('layers').getBoundingClientRect();
+    const lt = document.getElementById('legend').getBoundingClientRect();
+    ok('桌面端图例不遮挡图层面板', lb.bottom <= lt.top, [Math.round(lb.bottom), Math.round(lt.top)]);
+    const rc = document.getElementById('rightCol');
+    const lg = document.getElementById('legend');
+    ok('图例挂进 rightCol（窗口再小也不会与图层面板重叠）',
+       lg.parentElement === rc && getComputedStyle(rc).display === 'flex',
+       [lg.parentElement && lg.parentElement.id, getComputedStyle(rc).display]);
+    later(60, step8);
+  }
+
+  function step8(){   // 新房楼盘：默认关闭 + 开关 + 价位筛选联动
+    document.querySelectorAll('#viewToggle .view-btn')[0].click();   // 回到板块级（弹窗统计要用 cellPolys）
+    ok('新房测试前回到板块级', curView === 'cell');
+    const ck = document.getElementById('ckNew');
+    const n = (typeof NEWHOMES === 'undefined') ? 0 : NEWHOMES.length;
+    R.info.newhomes = n;
+    if (!n) {
+      ok('无新房数据时隐藏图层开关',
+         document.getElementById('lbNew').style.display === 'none' &&
+         document.getElementById('nhLegend').style.display === 'none');
+      ok('无 JS 报错（无新房数据）', __err.length === 0, __err);
+      return later(60, done);
+    }
+    ok('新房图层默认关闭', !map.hasLayer(newHomeLayer) && !ck.checked);
+    const cp = cellPolys[0];
+    ok('勾选新房前区域填色不透明度 .5', cp.options.fillOpacity === .5, cp.options.fillOpacity);
+    ck.checked = true; ck.dispatchEvent(new Event('change'));
+    ok('勾选新房后区域填色调淡为 .28', cp.options.fillOpacity === .28, cp.options.fillOpacity);
+    ok('勾选后新房点全部上图', newHomeLayer.getLayers().length === n,
+       [newHomeLayer.getLayers().length, n]);
+    ok('新房点按单价着色', nhPoints.every(o => o.mk.options.fillColor === nhColor(o.h.unit_price)));
+
+    const mn = document.getElementById('pfMin'), mx = document.getElementById('pfMax');
+    mn.value = 5; mx.value = 7; mn.dispatchEvent(new Event('input'));
+    const inRange = h => h.unit_price != null && h.unit_price / 10000 >= 5 && h.unit_price / 10000 <= 7;
+    const expectOut = NEWHOMES.filter(h => !inRange(h)).length;
+    const gray = nhPoints.filter(o => o.mk.options.fillColor === '#cbd5e1').length;
+    ok('价位筛选后新房灰点数正确（无单价或区间外）', gray === expectOut, [gray, expectOut]);
+    const passPts = nhPoints.filter(o => !o.mk._out);
+    ok('符合点保留档位色',
+       passPts.length > 0 && passPts.every(o => o.mk.options.fillColor === nhColor(o.h.unit_price)),
+       passPts.length ? passPts.map(o => [o.mk.options.fillColor, nhColor(o.h.unit_price)]).slice(0, 3) : '无符合点');
+    const pair = (() => {
+      for (const a of [false, true]) {
+        const p = passPts.find(o => o.h.approx === a);
+        const q = nhPoints.find(o => o.mk._out && o.h.approx === a);
+        if (p && q) return [p, q];
+      }
+      return null;
+    })();
+    ok('符合点半径大于灰点半径（同 zoom、同 approx）',
+       !!pair && pair[0].mk.getRadius() > pair[1].mk.getRadius(),
+       pair ? [pair[0].mk.getRadius(), pair[1].mk.getRadius()] : '无同 approx 的符合/灰点可比');
+    ok('筛选计数追加新房', /新房 \d+ \/ \d+ 个/.test(document.getElementById('pfCount').textContent),
+       document.getElementById('pfCount').textContent);
+    document.getElementById('pfClear').click();
+    ok('清除筛选后新房无灰点', nhPoints.every(o => !o.mk._out && o.mk.options.fillColor !== '#cbd5e1'));
+    map.closePopup();
+    later(120, step9);
+  }
+
+  function step9(){   // 图层打开时：板块弹窗末尾追加本区域新房统计
+    const i = NEWHOMES.findIndex(h => h.cell != null);
+    ok('有新房落入板块单元', i >= 0, i);
+    if (i < 0) return later(60, step10);
+    R.__nhCell = NEWHOMES[i].cell;
+    cellPolys[R.__nhCell].openPopup();
+    later(220, () => {
+      const box = document.querySelector('.leaflet-popup-content');
+      const el = box && box.querySelector('.pp-nh');
+      ok('板块弹窗末尾追加新房统计', !!el, box ? box.textContent.slice(-70) : '弹窗未渲染');
+      ok('统计文字含本板块与数量', !!el && /本板块新房 \d+ 个/.test(el.textContent), el && el.textContent);
+      cellPolys[R.__nhCell].closePopup();
+      later(120, step9b);   // 图层仍开着，接着做真实点击测试
+    });
+  }
+
+  function step9b(){   // 真实点击：新房圆点开楼盘弹窗；板块空白处仍开板块弹窗
+    const finish = () => {
+      const ck = document.getElementById('ckNew');
+      ck.checked = false; ck.dispatchEvent(new Event('change'));
+      ok('取消勾选后图层移除', !map.hasLayer(newHomeLayer));
+      ok('取消新房后区域填色恢复 .5', cellPolys[0].options.fillOpacity === .5,
+         cellPolys[0].options.fillOpacity);
+      later(120, step10);
+    };
+    const o = nhPoints.find(p => p.h.cell != null);
+    ok('存在可点击的新房圆点', !!o);
+    if (!o) { finish(); return; }
+    const h = o.h, lat = h.lat, lng = h.lng;
+    map.closePopup();
+    map.setView([lat, lng], 15, {animate:false});
+    later(400, () => {
+      const pt = map.latLngToContainerPoint([lat, lng]);
+      const rb = document.getElementById('map').getBoundingClientRect();
+      const x = rb.left + pt.x, y = rb.top + pt.y;
+      const el = document.elementFromPoint(x, y);
+      const pane = el && el.closest('.leaflet-pane');
+      ok('圆点命中的元素在新房 pane 内',
+         !!pane && pane.classList.contains('leaflet-nh-pane'),
+         el ? (el.tagName + '.' + (el.getAttribute && el.getAttribute('class') || '')) : 'null');
+      if (!el) { R.fail.push('圆点处 elementFromPoint 为空'); finish(); return; }
+      el.dispatchEvent(new MouseEvent('click', {bubbles:true, clientX:x, clientY:y}));
+      later(220, () => {
+        const box = document.querySelector('.leaflet-popup-content');
+        const txt = box ? box.textContent : '';
+        ok('点击圆点打开楼盘弹窗（含楼盘名与价格）',
+           txt.indexOf(h.name) >= 0 && (txt.indexOf('万/㎡') >= 0 || txt.indexOf('价格待定') >= 0),
+           txt.slice(0, 80));
+        ok('楼盘弹窗不含板块的参考挂牌价', txt.indexOf('参考挂牌价') < 0);
+        map.closePopup();
+        // 另找一个没有新房、且中心远离任何楼盘圆点的板块作为空白处
+        let bi = -1;
+        for (let k = 0; k < CELLS.length; k++) {
+          const c = CELLS[k].c;
+          if (NEWHOMES.some(x => x.cell === k)) continue;
+          if (nhPoints.some(p => Math.hypot(p.h.lat - c[0], p.h.lng - c[1]) <= 0.02)) continue;
+          bi = k; break;
+        }
+        ok('存在无新房覆盖的板块空白处', bi >= 0, bi);
+        if (bi < 0) { finish(); return; }
+        const c = CELLS[bi].c;
+        map.setView(c, 15, {animate:false});
+        later(400, () => {
+          const pt2 = map.latLngToContainerPoint(c);
+          const x2 = rb.left + pt2.x, y2 = rb.top + pt2.y;
+          const el2 = document.elementFromPoint(x2, y2);
+          const pane2 = el2 && el2.closest('.leaflet-pane');
+          ok('空白处命中的元素不在新房 pane 内',
+             !(pane2 && pane2.classList.contains('leaflet-nh-pane')),
+             el2 ? (el2.tagName + '.' + (el2.getAttribute && el2.getAttribute('class') || '')) : 'null');
+          if (!el2) { R.fail.push('空白处 elementFromPoint 为空'); finish(); return; }
+          el2.dispatchEvent(new MouseEvent('click', {bubbles:true, clientX:x2, clientY:y2}));
+          later(220, () => {
+            const box2 = document.querySelector('.leaflet-popup-content');
+            const txt2 = box2 ? box2.textContent : '';
+            ok('空白处点击弹出板块弹窗（含参考挂牌价）', txt2.indexOf('参考挂牌价') >= 0, txt2.slice(0, 80));
+            map.closePopup();
+            finish();
+          });
+        });
+      });
+    });
+  }
+
+  function step10(){   // 图层关闭时不追加统计；楼盘弹窗内容
+    const ck = document.getElementById('ckNew'), i = R.__nhCell;
+    if (i != null) {
+      cellPolys[i].openPopup();
+      const box = document.querySelector('.leaflet-popup-content');
+      ok('图层关闭时板块弹窗不含新房统计', !(box && box.querySelector('.pp-nh')),
+         box ? box.textContent.slice(-60) : '弹窗未渲染');
+      cellPolys[i].closePopup();
+    }
+    if (!nhPoints.length) {
+      ok('无 JS 报错（含新房图层）', __err.length === 0, __err);
+      return later(60, done);
+    }
+    ck.checked = true; ck.dispatchEvent(new Event('change'));
+    const o = nhPoints[0];
+    o.mk.openPopup();
+    later(220, () => {
+      const box = document.querySelector('.leaflet-popup-content');
+      const txt = box ? box.textContent : '';
+      ok('楼盘弹窗含楼盘名', txt.indexOf(o.h.name) >= 0, txt.slice(0, 60));
+      ok('楼盘弹窗带房天下来源链接',
+         txt.indexOf('房天下') >= 0 && !!(box && box.querySelector('a[href*="fang.com"]')));
+      o.mk.closePopup();
+      // approx（坐标只精确到道路）的楼盘：弹窗要有位置说明，圆点半径比精确点小 1
+      const ap = nhPoints.find(p => p.h.approx);
+      if (!ap) {
+        ok('approx 楼盘弹窗含「道路级估计」（跳过：本次数据无 approx 楼盘）', true);
+        ck.checked = false; ck.dispatchEvent(new Event('change'));
+        ok('无 JS 报错（含新房图层）', __err.length === 0, __err);
+        return later(60, done);
+      }
+      ap.mk.openPopup();
+      later(220, () => {
+        const b2 = document.querySelector('.leaflet-popup-content');
+        const t2 = b2 ? b2.textContent : '';
+        ok('approx 楼盘弹窗含「道路级估计」', t2.indexOf('道路级估计') >= 0, t2.slice(0, 80));
+        const exact = nhPoints.find(p => !p.h.approx);
+        ok('approx 点半径比精确点小 1',
+           !exact || ap.mk.getRadius() === exact.mk.getRadius() - 1,
+           exact ? [ap.mk.getRadius(), exact.mk.getRadius()] : '无精确点可比');
+        ap.mk.closePopup();
+        ck.checked = false; ck.dispatchEvent(new Event('change'));
+        ok('无 JS 报错（含新房图层）', __err.length === 0, __err);
+        later(60, done);
+      });
+    });
   }
 
   function done(){
@@ -501,6 +718,7 @@ def main():
         skip("基线对比", "--no-base")
     test_aggregate()
     test_no_school_file()
+    test_no_newhome_file()
     test_browser(html_now)
     report()
 
