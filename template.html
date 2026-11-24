@@ -591,11 +591,11 @@ const planLayer = L.tileLayer('https://map4.shanghai-map.net/arcgis/rest/service
 let planOk=false, planFail=0;
 planLayer.on('tileload', ()=>{ planOk=true; document.getElementById('planFail').style.display='none'; });
 planLayer.on('tileerror', ()=>{ if(!planOk && ++planFail>4) document.getElementById('planFail').style.display='block'; });
-// 图例：只列买房关心的大类，颜色取自官方控规图例
+// 图例：只列买房关心的大类，颜色取自官方控规图例（第三项是官方用地代码，check_plan_layer.py 据此核对颜色）
 const PLAN_LEGEND = [
-  ['居住','#fae694'], ['中小学/托幼','#fa8a6e'], ['社区配套','#fa8ca8'], ['商业办公','#de452b'],
-  ['医疗卫生','#6999ab'], ['公园绿地','#00ff00'], ['工业','#c46758'], ['仓储物流','#b285be'],
-  ['市政设施','#8f9cb5'], ['交通/轨道','#996aa1'], ['备建/预留','#d6e096'], ['水域','#8fc4d4']];
+  ['居住','#fae694','R'], ['中小学/托幼','#fa8a6e','Rs'], ['社区配套','#fa8ca8','Rc'], ['商业办公','#de452b','C2'],
+  ['医疗卫生','#6999ab','C5'], ['公园绿地','#00ff00','G'], ['工业','#c46758','M'], ['仓储物流','#b285be','W'],
+  ['市政设施','#8f9cb5','U'], ['交通/轨道','#9969a1','S2'], ['备建/预留','#d6e096','X'], ['水域','#8fc4d4','E']];
 document.getElementById('planGrid').innerHTML = PLAN_LEGEND.map(([n,c])=>
   `<div class="row"><span class="swArea" style="background:${c};opacity:.75"></span>${n}</div>`).join('');
 let planHidFill = false;   // 开控规时是否由我们关掉了区域填色（关控规时据此恢复）
