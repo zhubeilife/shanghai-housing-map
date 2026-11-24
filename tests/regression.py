@@ -332,6 +332,14 @@ BROWSER_JS = r"""
     flip('ckMetro', metroLayer, '地铁');
     flip('ckMetroPlanned', metroPlannedLayer, '在建地铁');
     flip('ckTown', townLineLayer, '街镇界');
+    // 控规：默认关闭；开启后上图并自动关闭区域填色，关闭后恢复填色
+    on('ckPlan').checked = true; on('ckPlan').dispatchEvent(new Event('change'));
+    ok('控规 开关生效并关闭区域填色', map.hasLayer(planLayer) && !on('ckFill').checked && !map.hasLayer(cellFillLayer),
+       [map.hasLayer(planLayer), on('ckFill').checked]);
+    on('ckPlan').checked = false; on('ckPlan').dispatchEvent(new Event('change'));
+    ok('控规 关闭后恢复区域填色', !map.hasLayer(planLayer) && on('ckFill').checked && map.hasLayer(cellFillLayer),
+       [map.hasLayer(planLayer), on('ckFill').checked]);
+    map.setZoom(10.5, {animate:false});
     later(60, step4);
   }
 

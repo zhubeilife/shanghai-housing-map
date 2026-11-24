@@ -42,6 +42,7 @@
   .lineSw.dash{border-top-style:dashed;border-top-width:3px;}
   .lineSw.dotted{border-top-style:dotted;border-top-width:3px;}
   #legend hr{border:none;border-top:1px solid #e8edf3;margin:5px 0;}
+  #legend .note a{color:inherit;}
   /* 价位筛选（左上，缩放按钮右侧） */
   #priceFilter{top:12px;left:54px;padding:8px 10px;}
   .pf-title{font-weight:600;color:var(--ink);margin-bottom:3px;}
@@ -186,6 +187,7 @@
         <label><input type="checkbox" id="ckMetroPlanned" checked> 在建/规划地铁（2030前）</label>
         <label><input type="checkbox" id="ckTown"> 街镇界参考</label>
         <label id="lbNew"><input type="checkbox" id="ckNew"> 🏠 新房楼盘</label>
+        <label><input type="checkbox" id="ckPlan"> 规划用地（控规）</label>
       </div>
       <div id="legend" class="panel">
         <h4>交通线路</h4>
@@ -204,6 +206,14 @@
         <hr id="nhHr">
         <h4 id="nhH4">新房楼盘</h4>
         <div id="nhLegend"></div>
+        <div id="planLegend" style="display:none">
+          <hr>
+          <h4>规划用地（控规）</h4>
+          <div class="grid" id="planGrid"></div>
+          <div class="note" id="planNote">放大到 12 级以上显示；开启时自动关闭区域填色。<br>
+            地块的用地性质、容积率、限高到<a href="https://shanghai.tianditu.gov.cn/xg/map.html" target="_blank" rel="noopener">上海规划资源局控规查询</a>点选查看。规划不等于已实施。</div>
+          <div class="note" id="planFail" style="display:none;color:#b45309">控规瓦片加载失败（对方服务不可用或被网络拦截）。</div>
+        </div>
       </div>
       </div>
       </div>
@@ -212,7 +222,7 @@
   </div>
   <footer>
     <span id="verInfo" style="font-weight:600;"></span>
-    数据：街镇边界 © OpenStreetMap 贡献者；板块参考价取自贝壳 <span class="dataDateCn"></span>上榜小区挂牌均价（25%–75%分位，非成交价），贝壳商圈对不上的少数板块取房天下同期小区均价，实际成交因楼龄房型差异较大；区级均价：房天下；行政边界：阿里云 DataV。<span id="scFooter"></span><span id="nhFooter"></span>
+    数据：街镇边界 © OpenStreetMap 贡献者；板块参考价取自贝壳 <span class="dataDateCn"></span>上榜小区挂牌均价（25%–75%分位，非成交价），贝壳商圈对不上的少数板块取房天下同期小区均价，实际成交因楼龄房型差异较大；区级均价：房天下；行政边界：阿里云 DataV。控规地块：上海市规划和自然资源局（仅供参考，以批复文件为准）。<span id="scFooter"></span><span id="nhFooter"></span>
   </footer>
 </div>
 <script>
@@ -569,6 +579,38 @@ Object.entries(METRO_PLANNED).forEach(([name,l])=>{
     line.on('mouseout',e=>e.target.setStyle({weight:3}));
     line.addTo(metroPlannedLayer);
   });
+});
+
+// ── 规划用地（控规）：上海市规划和自然资源局控规地块瓦片，默认关闭 ──
+// 服务为标准 EPSG:3857 / 256px 缓存瓦片（/tile/{z}/{y}/{x}），无需令牌；放在底图之上、板块填色之下。
+// 是外部政府服务，地址可能变动：加载失败时只在图例里提示，不影响其它图层。
+map.createPane('planPane').style.zIndex = 250;
+const planLayer = L.tileLayer('https://map4.shanghai-map.net/arcgis/rest/services/planblock/MapServer/tile/{z}/{y}/{x}', {
+  pane:'planPane', opacity:.6, minZoom:12, maxZoom:19, maxNativeZoom:19,
+  attribution:'控规地块 © 上海市规划和自然资源局'});
+let planOk=false, planFail=0;
+planLayer.on('tileload', ()=>{ planOk=true; document.getElementById('planFail').style.display='none'; });
+planLayer.on('tileerror', ()=>{ if(!planOk && ++planFail>4) document.getElementById('planFail').style.display='block'; });
+// 图例：只列买房关心的大类，颜色取自官方控规图例
+const PLAN_LEGEND = [
+  ['居住','#fae694'], ['中小学/托幼','#fa8a6e'], ['社区配套','#fa8ca8'], ['商业办公','#de452b'],
+  ['医疗卫生','#6999ab'], ['公园绿地','#00ff00'], ['工业','#c46758'], ['仓储物流','#b285be'],
+  ['市政设施','#8f9cb5'], ['交通/轨道','#996aa1'], ['备建/预留','#d6e096'], ['水域','#8fc4d4']];
+document.getElementById('planGrid').innerHTML = PLAN_LEGEND.map(([n,c])=>
+  `<div class="row"><span class="swArea" style="background:${c};opacity:.75"></span>${n}</div>`).join('');
+let planHidFill = false;   // 开控规时是否由我们关掉了区域填色（关控规时据此恢复）
+document.getElementById('ckPlan').addEventListener('change', e=>{
+  const ckFill = document.getElementById('ckFill');
+  document.getElementById('planLegend').style.display = e.target.checked ? '' : 'none';
+  if(e.target.checked){
+    planLayer.addTo(map);
+    if(ckFill.checked){ ckFill.checked = false; ckFill.dispatchEvent(new Event('change')); planHidFill = true; }
+    if(map.getZoom() < 12) map.setZoom(12);
+  } else {
+    map.removeLayer(planLayer);
+    if(planHidFill && !ckFill.checked){ ckFill.checked = true; ckFill.dispatchEvent(new Event('change')); }
+    planHidFill = false;
+  }
 });
 
 // ── 图例：行政区 ──
