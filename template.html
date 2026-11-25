@@ -653,6 +653,8 @@ function nhPopup(h){
   if(area) rows.push(`<li><span>面积</span><span>${area}</span></li>`);
   if(h.rooms) rows.push(`<li><span>户型</span><span>${esc(h.rooms)}</span></li>`);
   if(h.delivery) rows.push(`<li><span>交付</span><span>${esc(h.delivery)}</span></li>`);
+  // finish_by：规划资源局存量住宅用地清单里这块地的约定竣工日（出让合同日期，是最晚期限，不是实际交付）
+  if(h.finish_by) rows.push(`<li><span>约定竣工</span><span>${esc(h.finish_by)}（出让合同）</span></li>`);
   if(h.metro && h.metro.name) rows.push(`<li><span>地铁</span><span>${esc(h.metro.name)}${h.metro.minutes != null ? ` 步行 ${h.metro.minutes} 分钟` : ''}</span></li>`);
   if(h.tags) rows.push(`<li><span>类型</span><span style="text-align:right;max-width:66%">${esc(h.tags)}</span></li>`);
   let tail = '';
