@@ -23,9 +23,11 @@ data/ 目录已带好一份现成数据。只有在以下情况才需要重跑�
 Overpass 公共服务器偶尔繁忙，失败时脚本会自动换镜像重试；
 如仍失败，隔几分钟再跑一次即可。
 """
+import collections
 import json
 import math
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -138,32 +140,89 @@ def fetch_districts():
 
 
 def fetch_metro():
-    """地铁线路：每条线取一个方向的 relation，拼接后抽稀。"""
+    """地铁线路：同一 ref 的所有 relation（两个方向 + 支线，如 11 号线花桥支线、
+    5 号线南延伸）合并轨道 way，按 way id 去重后拼接、去掉并行双线，再抽稀。"""
     print("▸ 抓取地铁线路（Overpass）…")
+    # 用经纬度框而不是 area：部分镜像没建 area 索引，会静默返回空结果
     tags = overpass('[out:json][timeout:180];'
-                    'area["name"="上海市"]["admin_level"="4"]->.sh;'
-                    'relation["route"="subway"](area.sh);out tags;')
-    best = {}
+                    'relation["route"="subway"](30.65,120.85,31.90,122.25);out tags;')
+    rels = collections.defaultdict(list)
+    colour = {}
     for r in tags["elements"]:
         t = r.get("tags", {})
         ref = t.get("ref")
-        if ref and ref not in best:  # 每条线保留遇到的第一个方向
-            best[ref] = (r["id"], t.get("colour", "#888"))
-    print(f"  找到 {len(best)} 条线：{sorted(best, key=lambda x: (len(x), x))}")
+        if t.get("network") and "上海" not in t["network"]:
+            continue  # 经纬度框会框进苏州轨道交通 11 号线（花桥换乘），编号撞车
+        if ref and re.fullmatch(r"\d+", ref):
+            rels[ref].append(r["id"])
+            colour.setdefault(ref, t.get("colour", "#888"))
+    if not rels:
+        raise RuntimeError("Overpass 返回空结果，未覆盖 metro_lines.json")
+    print(f"  找到 {len(rels)} 条线 / {sum(map(len, rels.values()))} 个 relation："
+          f"{sorted(rels, key=int)}")
 
-    ids = ",".join(str(v[0]) for v in best.values())
+    id2ref = {i: ref for ref, ids in rels.items() for i in ids}
+    ids = ",".join(str(i) for i in id2ref)
     geom = overpass(f"[out:json][timeout:300];relation(id:{ids});out geom;")
-    id2ref = {v[0]: k for k, v in best.items()}
-    lines = {}
+    # 每个 relation（一个方向或一条支线）单独拼接，再在同线各 relation 之间去掉重合的部分；
+    # 不能先把两个方向的 way 混在一起拼：首尾相接会拼成"去程+回程"的一条折线，长度翻倍
+    rel_paths = collections.defaultdict(list)  # ref → [折线]
     for rel in geom["elements"]:
         ref = id2ref[rel["id"]]
         segs = [way_pts(m) for m in rel.get("members", [])
                 if m["type"] == "way" and m.get("geometry")
                 and m.get("role", "") in ("", "forward", "backward")]
-        paths = [simplify(s, 0.0004) for s in stitch(segs)]
-        lines[ref] = {"colour": best[ref][1], "paths": [to_latlng(s) for s in paths]}
+        rel_paths[ref] += [simplify(s, 0.0004) for s in stitch(segs)]
+    lines = {}
+    for ref in sorted(rel_paths, key=int):
+        paths = _dedup_near([p for p in rel_paths[ref] if len(p) > 1])
+        lines[ref] = {"colour": colour[ref], "paths": [to_latlng(s) for s in paths]}
+        print(f"  {ref} 号线：{len(rels[ref])} 个 relation → {len(paths)} 段")
     json.dump(lines, open(os.path.join(DATA, "metro_lines.json"), "w"), ensure_ascii=False)
     print("  完成 → data/metro_lines.json")
+
+
+def _dedup_near(paths, tol_m=80, min_len_m=300):
+    """合并同一条线的多条折线（两个方向、支线）：从最长的开始，后面每条只保留没被已保留折线
+    覆盖（tol_m 米内）的部分，且该部分长度要超过 min_len_m。这样双线/反向重复被去掉，
+    支线（如 11 号线嘉定北支线、10 号线航中路支线）只留下分岔出去的那一段。"""
+    kx, ky = 94800, 111000  # 上海纬度附近 1° 的米数
+
+    def seg_dist(p, a, b):
+        px, py = p[0] * kx, p[1] * ky
+        ax, ay, bx, by = a[0] * kx, a[1] * ky, b[0] * kx, b[1] * ky
+        dx, dy = bx - ax, by - ay
+        t = max(0, min(1, ((px - ax) * dx + (py - ay) * dy) / ((dx * dx + dy * dy) or 1)))
+        return math.hypot(px - ax - t * dx, py - ay - t * dy)
+
+    def length(path):
+        return sum(math.hypot((a[0] - b[0]) * kx, (a[1] - b[1]) * ky) for a, b in zip(path, path[1:]))
+
+    def densify(path, step_m=100):  # 抽稀后的点很稀，插点后再逐点判断覆盖
+        out = [path[0]]
+        for a, b in zip(path, path[1:]):
+            n = max(1, int(math.hypot((a[0] - b[0]) * kx, (a[1] - b[1]) * ky) // step_m))
+            out += [(a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n) for i in range(1, n + 1)]
+        return out
+
+    kept = []
+    for p in sorted(paths, key=length, reverse=True):
+        dense = densify(p)
+        covered = [any(seg_dist(pt, a, b) <= tol_m for k in kept for a, b in zip(k, k[1:])) for pt in dense]
+        run = []
+        for idx, pt in enumerate(dense + [None]):
+            if pt is not None and not covered[idx]:
+                if not run and idx > 0:
+                    run.append(dense[idx - 1])  # 带上前一个点，和主线接上
+                run.append(pt)
+                continue
+            if run:
+                if pt is not None:
+                    run.append(pt)
+                if length(run) >= min_len_m:
+                    kept.append(simplify(run, 0.0004))
+                run = []
+    return kept
 
 
 def _bbox(seg):
@@ -207,18 +266,21 @@ def fetch_metro_planned():
         ("南汇支线", "南汇支线|南汇线", "#8A6D5C", "南汇支线（2030年前建成）"),
         ("21号线", "地铁21号线|轨道交通21号线", "#9A6B7A", "21号线一期及东延伸（2030年前建成）"),
         ("23号线", "地铁23号线|轨道交通23号线", "#6B8A9A", "23号线一期（2030年前建成）"),
+        # 19/20 号线：官方色分别为 CMYK(0,42,52,0) 橙红、CMYK(93,0,78,0) 绿，按在建线路惯例降低饱和度
+        ("19号线", "地铁19号线|轨道交通19号线", "#D9896E", "19号线（宝山站—虹建路，在建）"),
+        ("20号线", "地铁20号线|轨道交通20号线", "#4E9A6A", "20号线一期在建（上海西站—共青森林公园），东延伸规划中"),
     ]
     lines = {}
     for key, name_re, colour, note in specs:
         try:
+            # 经纬度框而不是 area：部分镜像没建 area 索引，会静默返回空结果
             d = overpass(f'[out:json][timeout:120];'
-                        f'area["name"="上海市"]["admin_level"="4"]->.sh;'
-                        f'way["name"~"{name_re}"](area.sh);out geom;')
+                        f'way["railway"]["name"~"{name_re}"](30.65,120.85,31.90,122.25);out geom;')
         except Exception as e:
             print(f"  ⚠ {key} 抓取失败，跳过：{e}")
             continue
         segs = [way_pts(e) for e in d["elements"]]
-        paths = _dedup_parallel([simplify(s, 0.0004) for s in stitch(segs) if len(s) > 1])
+        paths = _dedup_near([simplify(s, 0.0004) for s in stitch(segs) if len(s) > 1])
         if not paths:
             print(f"  ⚠ {key} 未找到几何数据，跳过")
             continue
@@ -228,8 +290,7 @@ def fetch_metro_planned():
     # 12号线西延伸：只取已有"12号线" way 里带 construction 标记的新建段
     try:
         d = overpass('[out:json][timeout:120];'
-                    'area["name"="上海市"]["admin_level"="4"]->.sh;'
-                    'way["railway"]["name"~"12号线"](area.sh);out geom;')
+                    'way["railway"]["name"~"12号线"](30.65,120.85,31.90,122.25);out geom;')
         els = [e for e in d["elements"] if e.get("tags", {}).get("construction") == "subway"]
         segs = [way_pts(e) for e in els]
         paths = [simplify(s, 0.0004) for s in stitch(segs) if len(s) > 1]

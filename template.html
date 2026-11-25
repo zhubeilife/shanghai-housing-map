@@ -81,7 +81,7 @@
   .pp-sec{margin-top:7px;padding-top:6px;border-top:1px solid #e6eaf0;display:flex;
     justify-content:space-between;align-items:baseline;gap:8px;font-weight:600;font-size:12.5px;}
   .pp-cnt{font-weight:400;color:var(--ink3);font-size:11px;white-space:nowrap;}
-  .pp-sc{max-height:240px;overflow:auto;margin-top:1px;}
+  .pp-sc{max-height:180px;overflow:auto;margin-top:1px;}   /* 小学、初中各一块，各自限高 */
   .pp-sc details{border-bottom:1px dotted #e6eaf0;padding:1px 0;}
   .pp-sc details:last-child{border-bottom:none;}
   .pp-sc summary{display:flex;justify-content:space-between;gap:8px;cursor:pointer;
@@ -92,7 +92,6 @@
   .pp-sc summary>span{color:var(--ink3);font-size:11px;flex:none;}
   .pp-areas{display:flex;flex-wrap:wrap;gap:3px;padding:3px 0 5px 13px;}
   .pp-area{font-size:11px;color:var(--ink2);background:#f1f5f9;border-radius:4px;padding:0 4px;line-height:1.6;}
-  .pp-area.a{background:#f8fafc;color:var(--ink3);}
   .pp-area.n{box-shadow:inset 0 -2px 0 #f3d19b;}
   .pp-more{font-size:11px;color:var(--ink3);padding-left:13px;}
   /* 新房楼盘：图例圆点、名称标签、板块弹窗里的本区域统计 */
@@ -101,6 +100,16 @@
     padding:0 4px;font-size:11px;font-weight:600;color:#1f2937;white-space:nowrap;
     box-shadow:0 1px 2px rgba(0,0,0,.15);pointer-events:none;}
   .leaflet-tooltip.nhLbl::before{display:none;}
+  /* 地铁站：图例圆点、站名标签、弹窗里的线路色块 */
+  .stSw{width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid #334155;flex:none;}
+  .stSw.x{width:10px;height:10px;border-width:2.5px;}
+  .stSw.b{border-style:dashed;border-color:#6B7A99;}
+  .leaflet-tooltip.stLbl{background:rgba(255,255,255,.85);border:none;border-radius:3px;box-shadow:none;
+    padding:0 3px;font-size:10.5px;color:#334155;white-space:nowrap;pointer-events:none;}
+  .leaflet-tooltip.stLbl.b{color:#64748b;font-style:italic;}
+  .leaflet-tooltip.stLbl::before{display:none;}
+  .pp-ln{display:inline-block;padding:0 6px;margin:2px 3px 0 0;border-radius:3px;color:#fff;font-size:11.5px;line-height:18px;}
+  .pp-ln.b{background:#fff !important;border:1.5px dashed;line-height:15px;}
   .pp-nh{margin-top:7px;padding-top:6px;border-top:1px solid #e6eaf0;font-size:12.5px;color:var(--ink2);}
   #tileNote{position:absolute;left:12px;bottom:22px;z-index:900;background:rgba(255,251,235,.95);border:1px solid #f4e3b2;
             border-radius:8px;padding:6px 10px;font-size:11px;color:#8a6d1a;display:none;max-width:250px;}
@@ -139,7 +148,7 @@
     #tileNote{bottom:calc(var(--sheet-h,44px) + 22px);}
     /* 弹窗别比屏幕宽，学区列表别占满整屏 */
     .leaflet-popup-content{width:min(300px,calc(100vw - 84px)) !important;}
-    .pp-sc{max-height:32vh;}
+    .pp-sc{max-height:24vh;}
     /* 新房：名称标签小一号，图例圆点小一号，别把两列布局撑破 */
     .leaflet-tooltip.nhLbl{font-size:10px;}
     .nhSw{width:9px;height:9px;}
@@ -185,6 +194,7 @@
         <label><input type="checkbox" id="ckRings" checked> 环线公路</label>
         <label><input type="checkbox" id="ckMetro" checked> 地铁线路</label>
         <label><input type="checkbox" id="ckMetroPlanned" checked> 在建/规划地铁（2030前）</label>
+        <label><input type="checkbox" id="ckStation" checked> 地铁站点</label>
         <label><input type="checkbox" id="ckTown"> 街镇界参考</label>
         <label id="lbNew"><input type="checkbox" id="ckNew"> 🏠 新房楼盘</label>
         <label><input type="checkbox" id="ckPlan"> 规划用地（控规）</label>
@@ -198,6 +208,9 @@
           <div class="row"><span class="lineSw" style="border-color:var(--ring-sub)"></span>绕城 G1503</div>
           <div class="row"><span class="lineSw dash" style="border-color:#e4002b"></span>地铁</div>
           <div class="row"><span class="lineSw dotted" style="border-color:#6B7A99"></span>在建/规划地铁</div>
+          <div class="row"><span class="stSw" style="border-color:#e4002b"></span>地铁站</div>
+          <div class="row"><span class="stSw x"></span>换乘站</div>
+          <div class="row"><span class="stSw b"></span>在建/规划站</div>
         </div>
         <div class="note">公路实线 · 地铁虚线 · 规划点线（2030前）</div>
         <hr>
@@ -326,25 +339,31 @@ function makePoly(rings, dist, w, lo, hi){
 function distPrice(dist){ const dp=DIST_PRICE[dist]; return dp ? +(dp[0]/10000).toFixed(1) : null; }
 function distLabel(dist){ return dist + (dist==='浦东' ? '新区' : '区'); }
 
-// ── 学区对口（浦东公办初中，数据由 aggregate_schools.py 聚合成 SCHOOLS[街镇全名]）──
+// ── 学区对口（全市公办小学/初中，数据由 export_schools.py 从主仓库导出成 SCHOOLS[街镇全名][学段]）──
 const SCT = (typeof SCHOOLMETA !== 'undefined') ? SCHOOLMETA : {};
-const SC_LIMIT = 60;   // 每所学校最多列出多少个地段，超出提示看原公示
+const SC_LIMIT = 60;   // 每所学校最多列出多少个小区，超出提示看原公示
+const SC_STAGE = {primary:'对口小学', junior:'对口初中'};
 function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function schoolBlock(townFull, label){
   if(!townFull || !SCT.towns || !SCHOOLS[townFull]) return '';
-  const t = SCHOOLS[townFull];
-  let h = `<div class="pp-sec"><span>对口初中${label?` · ${esc(label)}`:''}</span><span class="pp-cnt">${SCT.year||''} ${SCT.district||''}公示 · ${t.schools.length} 所 / ${t.n} 个地段</span></div>`;
-  h += '<div class="pp-sc">';
-  t.schools.forEach(s=>{
-    const areas = s.areas.slice(0, SC_LIMIT);
-    h += `<details><summary><span style="color:inherit;font-size:12.5px">${esc(s.name)}</span><span>${s.areas.length}</span></summary><div class="pp-areas">`;
-    h += areas.map(a=>`<span class="pp-area${a.k==='a'?' a':''}${a.note?' n':''}"${a.note?` title="${esc(a.note)}"`:''}>${esc(a.n)}</span>`).join('');
+  let h = '';
+  Object.keys(SC_STAGE).forEach(stage=>{
+    const t = SCHOOLS[townFull][stage];
+    if(!t) return;
+    h += `<div class="pp-sec"><span>${SC_STAGE[stage]}${label?` · ${esc(label)}`:''}</span><span class="pp-cnt">${SCT.year||''} 公示 · ${t.schools.length} 所 / ${t.n} 个小区</span></div>`;
+    h += '<div class="pp-sc">';
+    t.schools.forEach(s=>{
+      const areas = s.areas.slice(0, SC_LIMIT);
+      h += `<details><summary><span style="color:inherit;font-size:12.5px">${esc(s.name)}</span><span>${s.areas.length}</span></summary><div class="pp-areas">`;
+      h += areas.map(a=>`<span class="pp-area${a.note?' n':''}"${a.note?` title="${esc(a.note)}"`:''}>${esc(a.n)}</span>`).join('');
+      h += '</div>';
+      if(s.areas.length > SC_LIMIT)
+        h += `<div class="pp-more">另有 ${s.areas.length-SC_LIMIT} 个小区未列出，完整地段见区教育局公示</div>`;
+      h += '</details>';
+    });
     h += '</div>';
-    if(s.areas.length > SC_LIMIT)
-      h += `<div class="pp-more">另有 ${s.areas.length-SC_LIMIT} 个地段未列出，完整列表见区教育局公示</div>`;
-    h += '</details>';
   });
-  h += '</div>';
+  if(h) h += '<div class="pp-note">只列出已收录并匹配到对口学校的小区，不是完整地段；带橙色下划线的小区有备注（部分楼栋、门牌段、多校划片等），鼠标悬停查看</div>';
   return h;
 }
 
@@ -368,7 +387,7 @@ CELLS.forEach(t=>{
             lblPrice='约'+(dp[0]/10000).toFixed(1)+'万'; }
   }
   poly.bindPopup(`<div class="pp-title">${t.name}</div><div class="pp-sub">${distLabel(t.dist)}${t.est?' · 街镇（暂无细分板块价）':' · 板块'}</div>
-     ${priceHtml}${schoolBlock(t.tw, t.est ? '' : t.tw)}<div class="pp-note">参考挂牌价（万/㎡），${DATE_CN}<br>板块边界为基于板块中心的自动划分，仅供参考；对口初中按所在街镇公示，非板块专属</div>`, {maxWidth:340});
+     ${priceHtml}${schoolBlock(t.tw, t.est ? '' : t.tw)}<div class="pp-note">参考挂牌价（万/㎡），${DATE_CN}<br>板块边界为基于板块中心的自动划分，仅供参考；对口学校按所在街镇汇总，非板块专属</div>`, {maxWidth:340});
   poly.addTo(cellFillLayer);
   const mk = L.marker(t.c, {icon:L.divIcon({className:'twLbl', iconSize:[0,0],
       html:`<span>${t.name}${lblPrice?`<br><span class="pr" data-pr>${lblPrice}</span>`:''}</span>`}), interactive:false});
@@ -581,6 +600,67 @@ Object.entries(METRO_PLANNED).forEach(([name,l])=>{
   });
 });
 
+// ── 地铁站：已开通站跟随"地铁线路"开关，在建/规划站跟随"在建/规划地铁"开关，"地铁站点"总开关 ──
+// 与新房圆点同理用 SVG + 独立 pane（440，压在线路之上、新房之下），空白处可穿透到板块。
+map.createPane('stPane');
+map.getPane('stPane').style.zIndex = 440;
+const stRenderer = L.svg({pane:'stPane'});
+const ST = (typeof STATIONS !== 'undefined') ? STATIONS : [];
+function lineColour(l){
+  const m = /^(\d+)号线/.exec(l);
+  if(m && METRO[m[1]]) return METRO[m[1]].colour;
+  if(METRO_PLANNED[l]) return METRO_PLANNED[l].colour;
+  return '#475569';   // 没有专属色的在建线（19/20 号线等）用深灰，白底上也看得清
+}
+function stPopup(s){
+  const chip = (l,b)=>`<span class="pp-ln${b?' b':''}" style="${b?`border-color:${lineColour(l)};color:${lineColour(l)}`:`background:${lineColour(l)}`}">${esc(l)}</span>`;
+  let h = `<div class="pp-title">${esc(s.name)}${/(站|航站楼)$/.test(s.name)?'':'站'}</div>`;
+  if(s.lines.length) h += `<div class="pp-sub">已开通　${s.lines.map(l=>chip(l)).join('')}</div>`;
+  if(s.building.length) h += `<div class="pp-sub">在建/规划　${s.building.map(l=>chip(l,true)).join('')}</div>`;
+  if(s.status==='building') h += `<div class="pp-note">在建或规划车站，站名可能是工程名，位置为示意（来源：${
+    {osm:'OpenStreetMap',wikidata:'Wikidata',wikipedia:'维基百科',manual:'人工补点'}[s.src]||s.src}）</div>`;
+  return h;
+}
+const stOpenLayer = L.layerGroup(), stBuildLayer = L.layerGroup();
+const stPoints = [];
+ST.forEach(s=>{
+  const open = s.status==='open', xfer = s.lines.length > 1;   // 换乘站 = 至少两条已开通线路
+  const col = open ? (xfer ? '#334155' : lineColour(s.lines[0]||'')) : lineColour(s.building[0]||'');
+  const mk = L.circleMarker([s.lat, s.lng], {renderer:stRenderer, pane:'stPane', bubblingMouseEvents:false,
+    radius:3, color:col, weight: xfer ? 2.2 : 1.6, opacity: open ? 1 : .85, fillColor:'#ffffff', fillOpacity: open ? 1 : .9,
+    dashArray: open ? null : '2 2'});
+  mk.bindPopup(stPopup(s), {maxWidth:280});
+  mk.addTo(open ? stOpenLayer : stBuildLayer);
+  stPoints.push({mk, s, xfer, open});
+});
+// 按缩放分级，缩得越小显示越少，避免全市视图里糊成一片：
+//   ≤10 不显示 · 11 只显示已开通换乘站 · ≥12 全部站点（在建站更淡）
+//   站名：换乘站 ≥13，已开通站 ≥14，在建站 ≥15
+function refreshStations(){
+  const all = document.getElementById('ckStation').checked;
+  [[stOpenLayer,'ckMetro'],[stBuildLayer,'ckMetroPlanned']].forEach(([lyr,id])=>{
+    const want = all && document.getElementById(id).checked;
+    if(want && !map.hasLayer(lyr)) lyr.addTo(map); else if(!want && map.hasLayer(lyr)) map.removeLayer(lyr);
+  });
+  const z = map.getZoom();
+  stPoints.forEach(o=>{
+    const lyr = o.open ? stOpenLayer : stBuildLayer;
+    const visible = z >= 12 || (z >= 11 && o.open && o.xfer);   // 可能是半级缩放（11.5）
+    if(visible && !lyr.hasLayer(o.mk)) lyr.addLayer(o.mk);
+    else if(!visible && lyr.hasLayer(o.mk)) lyr.removeLayer(o.mk);
+    const r = (z >= 14 ? 4 : z >= 12 ? 3 : 2.5) + (o.xfer ? 1 : 0);
+    o.mk.setRadius(r);
+    const lblZoom = !o.open ? 15 : o.xfer ? 13 : 14;
+    const show = visible && map.hasLayer(lyr) && z >= lblZoom;
+    const tip = o.mk.getTooltip();
+    if(show && !tip) o.mk.bindTooltip(o.s.name, {permanent:true, direction:'right', offset:[r+2,0], className:'stLbl'+(o.open?'':' b')});
+    else if(!show && tip) o.mk.unbindTooltip();
+  });
+}
+map.on('zoomend', refreshStations);
+['ckStation','ckMetro','ckMetroPlanned'].forEach(id=>document.getElementById(id).addEventListener('change', refreshStations));
+refreshStations();
+
 // ── 规划用地（控规）：上海市规划和自然资源局控规地块瓦片，默认关闭 ──
 // 服务为标准 EPSG:3857 / 256px 缓存瓦片（/tile/{z}/{y}/{x}），无需令牌；放在底图之上、板块填色之下。
 // 是外部政府服务，地址可能变动：加载失败时只在图例里提示，不影响其它图层。
@@ -617,10 +697,10 @@ document.getElementById('ckPlan').addEventListener('change', e=>{
 document.getElementById('distLegend').innerHTML =
   Object.entries(DCOLOR).map(([d,c])=>`<div class="row"><span class="swArea" style="background:${c}"></span>${d}</div>`).join('');
 
-// ── 页脚：学区对口数据说明（只有浦东有公示数据可用）──
+// ── 页脚：学区对口数据说明（各区收录的小区数差异很大，写清楚）──
 if(SCT.towns){
   document.getElementById('scFooter').innerHTML =
-    `<br>学区对口：${SCT.source||''}（${SCT.towns} 个街镇，仅${SCT.district||'浦东'}），供参考，以当年招生政策为准。`;
+    `<br>学区对口：${SCT.source||''}，按小区匹配后汇总到街镇（${SCT.districts} 个区 ${SCT.towns} 个街镇、${SCT.estates} 个小区；各区收录小区数差异较大，没有出现的小区不代表无对口），供参考，以当年招生政策为准。`;
 }
 
 // ── 新房楼盘（房天下；默认关闭，按单价着色，跟价位筛选联动）──

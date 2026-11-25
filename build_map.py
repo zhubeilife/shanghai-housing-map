@@ -10,7 +10,7 @@
 流程：
   1. 读取 boards.py 里的板块房价（← 房价更新时只改这个文件）
   2. 读取 data/ 下的地理数据（区界、街镇边界、环线、地铁）
-  3. 读取 data/school_districts.json（学区对口，由 aggregate_schools.py 生成）
+  3. 读取 data/school_districts.json（学区对口，由 export_schools.py 从主仓库导出）
   4. 读取 data/newhomes.json（新房楼盘，可选；由新房子项目仓库导出），
      并给每个楼盘标出所属板块单元与街镇
   5. 以"板块点 + 无板块街镇的质心"为种子，在每个区内做
@@ -193,13 +193,23 @@ def main():
     metro_planned = load("metro_planned.json")
     rings = load("ring_roads.json")
 
-    # ── 学区对口（浦东公办初中 2025 公示，由 aggregate_schools.py 聚合）──
+    # ── 地铁站（fetch_stations.py 生成；可选）──
+    if os.path.exists(os.path.join(HERE, "data", "stations.json")):
+        stations = load("stations.json")
+        n_open = sum(s["status"] == "open" for s in stations)
+        print(f"地铁站：已开通 {n_open} 站，在建/规划 {len(stations) - n_open} 站")
+    else:
+        stations = []
+        print("⚠ 没有 data/stations.json，本次构建不含地铁站")
+
+    # ── 学区对口（全市公办小学/初中，由 export_schools.py 从主仓库导出）──
     school_path = os.path.join(HERE, "data", "school_districts.json")
     if os.path.exists(school_path):
         school = load("school_districts.json")
         school_meta, school_towns = school["meta"], school["towns"]
-        print(f"学区对口：{school_meta['towns']} 个街镇 / {school_meta['schools']} 所学校"
-              f"（{school_meta['district']}·{school_meta['year']} {school_meta['grade']}）")
+        print(f"学区对口：{school_meta['districts']} 个区 / {school_meta['towns']} 个街镇 / "
+              f"{school_meta['estates']} 个小区；小学 {school_meta['primary_schools']} 所、"
+              f"初中 {school_meta['junior_schools']} 所（{school_meta['year']}）")
     else:
         school_meta, school_towns = {}, {}
         print("⚠ 没有 data/school_districts.json，本次构建不含学区对口数据")
@@ -259,6 +269,7 @@ def main():
         f"const DISTRICTS={j(districts)};\n"
         f"const METRO={j(metro)};\n"
         f"const METRO_PLANNED={j(metro_planned)};\n"
+        f"const STATIONS={j(stations)};\n"
         f"const RINGS={j(rings)};\n"
         f"const DIST_PRICE={j(DISTRICT_PRICE)};\n"
         f"const SCHOOLMETA={j(school_meta)};\n"

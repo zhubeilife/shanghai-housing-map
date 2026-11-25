@@ -9,9 +9,9 @@
     python3 tests/regression.py --no-base  # 跳过基线对比（没有 git / 只想快点跑）
 
 覆盖：
-  A. 构建链路      aggregate_schools.py / build_map.py 能否跑通、输出是否一致
+  A. 构建链路      build_map.py 能否跑通、输出是否一致
   B. 数据不变量    与 HEAD 版本构建出的地图逐项比对（板块/街镇/环线/地铁/区价）
-  C. 学区聚合      36 街镇全覆盖、去重、确定性（两次跑字节一致）
+  C. 学区导出      export_schools.py 从主仓库导出：结构、计数自洽、去重、确定性（主库不在就跳过）
   D. 降级          删掉 school_districts.json / newhomes.json 后仍能构建，且不渲染对应区块
   E. 浏览器行为    无头 Chrome 实际打开地图：视图切换 / 各图层开关 / 标签阈值 /
                    价位筛选 / 弹窗内容 / 学区折叠展开 / 新房图层，并收集 JS 报错
@@ -104,45 +104,46 @@ def test_build():
     return html
 
 
-# ────────────────────────── C. 学区聚合 ──────────────────────────
+# ────────────────────────── C. 学区导出 ──────────────────────────
 def test_aggregate():
-    section("C. 学区聚合")
+    section("C. 学区导出")
     path = os.path.join(ROOT, "data", "school_districts.json")
-    raw = os.path.join(ROOT, "data", "pudong_junior_2025.jsonl")
-    ok("原始 jsonl 存在", os.path.exists(raw))
+    db = os.path.normpath(os.path.join(ROOT, "..", "shanghai-ai-housing", "data", "housing.db"))
+    if not os.path.exists(db):
+        skip("学区导出", f"没有主仓库数据库 {db}")
+        return None
     first = open(path, "rb").read() if os.path.exists(path) else b""
-    r = sh([sys.executable, "aggregate_schools.py"], cwd=ROOT)
-    ok("aggregate_schools.py 退出码 0", r.returncode == 0, r.stderr[-500:])
+    r = sh([sys.executable, "export_schools.py"], cwd=ROOT)
+    ok("export_schools.py 退出码 0", r.returncode == 0, r.stderr[-500:])
     second = open(path, "rb").read()
-    ok("两次聚合结果字节一致（确定性）", first == second)
+    ok("两次导出结果字节一致（确定性；主库刚更新过会不一致，重跑一次即可）", first == second)
 
     data = json.loads(second)
     meta, towns = data["meta"], data["towns"]
     with open(os.path.join(ROOT, "data", "towns.json"), encoding="utf-8") as f:
-        town_names = {t["name"] for t in json.load(f)}
-    ok("街镇数与浦东街镇总数一致（36）", meta["towns"] == 36, meta["towns"])
+        tg = json.load(f)
+    town_names = {t["name"] for t in tg}
+    ok("覆盖 16 个区", meta["districts"] == 16, meta["districts"])
     ok("所有街镇名都在 towns.json 里", set(towns) <= town_names, sorted(set(towns) - town_names))
     ok("meta.towns 与实际键数一致", meta["towns"] == len(towns))
+    ok("学段只有 primary / junior",
+       {st for t in towns.values() for st in t} <= {"primary", "junior"})
+    allsch = [(st, s) for t in towns.values() for st, v in t.items() for s in v["schools"]]
     ok("meta.areas 与逐条累加一致",
-       meta["areas"] == sum(len(s["areas"]) for t in towns.values() for s in t["schools"]),
-       (meta["areas"], sum(len(s["areas"]) for t in towns.values() for s in t["schools"])))
-    ok("meta.schools 为去重学校数",
-       meta["schools"] == len({s["name"] for t in towns.values() for s in t["schools"]}),
-       meta["schools"])
-    ok("街镇内无重名地段",
-       all(len({a["n"] for a in s["areas"]}) == len(s["areas"])
-           for t in towns.values() for s in t["schools"]))
-    ok("地段 kind 只有 c/a",
-       {a["k"] for t in towns.values() for s in t["schools"] for a in s["areas"]} == {"c", "a"})
-    ok("保留原始公示链接", any("shanghai.gov.cn" in u for u in meta["urls"]), meta["urls"])
-    ok("备注字段未被批量删除", any(a.get("note") for t in towns.values()
-                              for s in t["schools"] for a in s["areas"]))
-    notes = {a.get("note") for t in towns.values() for s in t["schools"] for a in s["areas"]
-             if a.get("note")}
-    ok("已拆迁地段保留（与公示一致）",
-       any("拆迁" in n or "动迁" in n for n in notes), sorted(notes)[:5])
-    print(f"   {meta['towns']} 街镇 / {meta['schools']} 校 / {meta['areas']} 地段 / "
-          f"{os.path.getsize(path)/1024:.0f} KB")
+       meta["areas"] == sum(len(s["areas"]) for _, s in allsch))
+    ok("各学段 n 与学校下小区数之和一致",
+       all(v["n"] == sum(len(s["areas"]) for s in v["schools"]) for t in towns.values() for v in t.values()))
+    ok("meta 学校数为各学段去重校名数",
+       meta["primary_schools"] == len({s["name"] for st, s in allsch if st == "primary"}) and
+       meta["junior_schools"] == len({s["name"] for st, s in allsch if st == "junior"}))
+    ok("同一学校下无重名小区",
+       all(len({a["n"] for a in s["areas"]}) == len(s["areas"]) for _, s in allsch))
+    ok("各区收录情况（coverage）覆盖 16 个区且不超过总数",
+       len(meta["coverage"]) == 16 and all(0 <= a <= b for a, b in meta["coverage"].values()),
+       meta["coverage"])
+    ok("备注（部分/门牌段/多校划片等）保留", any(a.get("note") for _, s in allsch for a in s["areas"]))
+    print(f"   {meta['districts']} 区 / {meta['towns']} 街镇 / 小学 {meta['primary_schools']} 所 / "
+          f"初中 {meta['junior_schools']} 所 / {meta['estates']} 小区 / {os.path.getsize(path)/1024:.0f} KB")
     return data
 
 
@@ -332,6 +333,22 @@ BROWSER_JS = r"""
     flip('ckMetro', metroLayer, '地铁');
     flip('ckMetroPlanned', metroPlannedLayer, '在建地铁');
     flip('ckTown', townLineLayer, '街镇界');
+    // 地铁站：总开关；已开通站跟随地铁开关；按缩放分级（≤10 不显示，11 只有换乘站，≥12 全部）
+    const stN = z => { map.setZoom(z, {animate:false}); refreshStations();
+      return [stOpenLayer.getLayers().length, stBuildLayer.getLayers().length]; };
+    ok('地铁站数据已载入', STATIONS.length > 450 && STATIONS.some(s => s.status === 'building'), STATIONS.length);
+    const z10 = stN(10), z11 = stN(11), z12 = stN(12);
+    ok('地铁站按缩放分级显示', z10[0] === 0 && z10[1] === 0 && z11[0] > 0 && z11[1] === 0 && z12[0] > z11[0] && z12[1] > 0,
+       [z10, z11, z12]);
+    ok('11.5 级仍显示换乘站', stN(11.5)[0] === z11[0], stN(11.5));
+    flip('ckStation', stOpenLayer, '地铁站点');
+    on('ckMetro').checked = false; on('ckMetro').dispatchEvent(new Event('change'));
+    ok('关掉地铁线路时已开通站一起隐藏、在建站保留', !map.hasLayer(stOpenLayer) && map.hasLayer(stBuildLayer));
+    on('ckMetro').checked = true; on('ckMetro').dispatchEvent(new Event('change'));
+    ok('打开地铁线路后已开通站恢复', map.hasLayer(stOpenLayer));
+    stN(14);
+    ok('14 级显示已开通站名、不显示在建站名',
+       stOpenLayer.getLayers().some(m => m.getTooltip()) && !stBuildLayer.getLayers().some(m => m.getTooltip()));
     // 控规：默认关闭；开启后上图并自动关闭区域填色，关闭后恢复填色
     on('ckPlan').checked = true; on('ckPlan').dispatchEvent(new Event('change'));
     ok('控规 开关生效并关闭区域填色', map.hasLayer(planLayer) && !on('ckFill').checked && !map.hasLayer(cellFillLayer),
@@ -408,19 +425,16 @@ BROWSER_JS = r"""
     }
     // —— 学区部分 ——
     R.info.schoolTowns = Object.keys(SCHOOLS).length;
-    R.info.schoolMeta = [SCHOOLMETA.year, SCHOOLMETA.schools, SCHOOLMETA.areas];
-    const pudong = CELLS.filter(c => c.dist === '浦东');
-    ok('浦东板块都能关联到街镇学区数据',
-       pudong.every(c => c.tw && SCHOOLS[c.tw]), pudong.filter(c => !(c.tw && SCHOOLS[c.tw])).map(c => c.name));
-    ok('非浦东板块不带学区数据',
-       CELLS.filter(c => c.dist !== '浦东').every(c => !SCHOOLS[c.tw]));
-    ok('浦东板块弹窗显示对口初中', has(cell('联洋'), '对口初中') && has(cell('联洋'), '花木街道'));
-    ok('非浦东板块弹窗不显示学区', !has(cell('静安寺'), 'pp-sec'));
+    R.info.schoolMeta = [SCHOOLMETA.year, SCHOOLMETA.towns, SCHOOLMETA.estates];
+    ok('学区数据覆盖 16 个区', new Set(TOWNS.filter(t => SCHOOLS[t.fullname]).map(t => t.dist)).size === 16);
+    ok('板块弹窗显示对口小学和初中', has(cell('联洋'), '对口小学') && has(cell('联洋'), '对口初中') && has(cell('联洋'), '花木街道'));
+    ok('浦东以外的板块也有学区', has(cell('徐家汇'), '对口小学'));
+    const noTown = TOWNS.find(t => !SCHOOLS[t.fullname]);
+    ok('没有数据的街镇弹窗不显示学区', noTown != null && !has(town(noTown.fullname), 'pp-sec'), noTown && noTown.fullname);
     ok('街镇弹窗显示对口初中', has(town('周浦镇'), '对口初中'));
-    const xh = TOWNS.find(t => t.dist === '徐汇');
-    ok('非浦东街镇弹窗不显示学区', xh != null && !has(town(xh.fullname), 'pp-sec'));
     ok('学区区块含年份与公示字样',
        has(town('周浦镇'), String(SCHOOLMETA.year)) && has(town('周浦镇'), '公示'));
+    ok('学区区块说明不是完整地段', has(town('周浦镇'), '不是完整地段'));
 
     // 折叠列表：默认收起 + 能展开
     // 街镇弹窗只有在街镇图层挂到地图上时才能打开
@@ -431,7 +445,7 @@ BROWSER_JS = r"""
     later(500, () => {
       const details = document.querySelectorAll('.leaflet-popup-content .pp-sc details');
       ok('每所学校一条折叠项',
-         details.length === SCHOOLS['周浦镇'].schools.length, details.length);
+         details.length === Object.values(SCHOOLS['周浦镇']).reduce((n, v) => n + v.schools.length, 0), details.length);
       ok('折叠项默认收起', Array.from(details).every(d => !d.open));
       const wrapper = document.querySelector('.leaflet-popup-content-wrapper');
       if (!wrapper) { R.fail.push('弹窗未渲染'); return done(); }
@@ -441,7 +455,9 @@ BROWSER_JS = r"""
         const w1 = document.querySelector('.leaflet-popup-content-wrapper');
         if (!w1) { R.fail.push('展开后弹窗丢失'); return done(); }
         const h1 = w1.offsetHeight;
-        ok('展开后弹窗变高', h1 > h0, [h0, h1]);
+        // 两个学段的列表各自限高，展开后弹窗高度不一定变，改为检查展开的小区列表确实显示出来
+        const sc0 = details[0].querySelector('.pp-areas');
+        ok('展开后小区列表可见', details[0].open && sc0 && sc0.offsetHeight > 0, sc0 && sc0.offsetHeight);
         const box = document.querySelector('.pp-sc');
         ok('地段列表限高可滚动',
            box.offsetHeight <= 260 && box.scrollHeight > box.clientHeight,
@@ -449,7 +465,7 @@ BROWSER_JS = r"""
         ok('弹窗不超出视口', h1 < innerHeight - 20, [h1, innerHeight]);
         ok('地段条目带备注标记（备注存在时）',
            document.querySelectorAll('.pp-area.n').length > 0 ||
-           !SCHOOLS['周浦镇'].schools.some(s => s.areas.some(a => a.note)));
+           !Object.values(SCHOOLS['周浦镇']).some(v => v.schools.some(s => s.areas.some(a => a.note))));
         ok('无 JS 报错（含弹窗交互）', __err.length === 0, __err);
         later(60, step7);
       });
@@ -462,7 +478,7 @@ BROWSER_JS = r"""
     ok('学区图例已移除', document.getElementById('scLegend') === null);
     if (typeof SCHOOLS !== 'undefined' && Object.keys(SCHOOLS).length) {
       const sf = document.getElementById('scFooter');
-      ok('页脚标注了学区数据范围', /36 个街镇/.test(sf.textContent), sf.textContent);
+      ok('页脚标注了学区数据范围', /16 个区/.test(sf.textContent) && /差异较大/.test(sf.textContent), sf.textContent);
       ok('页脚标注了学区数据来源', /教育局/.test(sf.textContent));
     }
     ok('版本徽标已渲染', /v\d/.test(document.getElementById('verBadge').textContent),
