@@ -658,6 +658,7 @@ function nhPopup(h){
   if(h.metro && h.metro.name) rows.push(`<li><span>地铁</span><span>${esc(h.metro.name)}${h.metro.minutes != null ? ` 步行 ${h.metro.minutes} 分钟` : ''}</span></li>`);
   if(h.tags) rows.push(`<li><span>类型</span><span style="text-align:right;max-width:66%">${esc(h.tags)}</span></li>`);
   let tail = '';
+  if(h.finish_by) tail += `<div class="pp-note">约定竣工是出让合同约定的最晚竣工期限，通常比实际交房晚一两年，不是交房日</div>`;
   if(h.price_date) tail += `<div class="pp-note">报价日期 ${esc(h.price_date)}</div>`;
   if(h.stale) tail += `<div class="pp-note">价格久未更新，可能已无房</div>`;
   if(h.approx) tail += `<div class="pp-note">位置为道路级估计，仅供参考</div>`;
@@ -792,7 +793,9 @@ if(!NH.length){
     `<div class="row"><span class="nhSw" style="background:${NH_C[2]}"></span>实心=在售<span class="nhSw" style="background:${nhFade(NH_C[2], .45)}"></span>浅色=待售</div>` +
     `<div class="note">${nhSrcNote()}</div>`;
   document.getElementById('nhFooter').innerHTML =
-    `<br>新房：房天下 ${esc(NHM.fetched_at||'')} 在售/待售楼盘报价，坐标经高德定位，仅供参考。`;
+    `<br>新房：房天下 ${esc(NHM.fetched_at||'')} 在售/待售楼盘报价，坐标经高德定位，仅供参考。` +
+    (NHM.stock_land_edition ? `约定竣工取自上海市规划和自然资源局存量住宅用地清单（${esc(NHM.stock_land_edition)}），` +
+      `是出让合同约定的最晚竣工期限，通常比实际交房晚一两年，不是交房日；已竣工的楼盘不在清单里，不显示。` : '');
 }
 
 // ── 开关 ──
