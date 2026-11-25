@@ -323,7 +323,15 @@ def fetch_metro_planned():
     except Exception as e:
         print(f"  ⚠ 崇明线 抓取失败，跳过：{e}")
 
-    json.dump(lines, open(os.path.join(DATA, "metro_planned.json"), "w"), ensure_ascii=False)
+    # 某条线这次没抓到（镜像超时等）：沿用旧文件里的数据，不让它从地图上消失
+    old_path = os.path.join(DATA, "metro_planned.json")
+    if os.path.exists(old_path):
+        old = json.load(open(old_path, encoding="utf-8"))
+        for k, v in old.items():
+            if k not in lines:
+                lines[k] = v
+                print(f"  ⚠ {k} 本次未抓到，沿用旧数据")
+    json.dump(lines, open(old_path, "w"), ensure_ascii=False)
     print(f"  完成 → data/metro_planned.json（{len(lines)} 条）")
 
 
