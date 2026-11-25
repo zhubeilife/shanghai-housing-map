@@ -48,7 +48,10 @@ def fetch_rank(part, cache_dir, gap):
         return json.load(open(path, encoding="utf-8"))["data"]
     cmd = ["beike", "buy", "rank", "-c", "上海", "-q", part, "--rank-type", "resblock"]
     # Key 按 WorkBuddy 来源申请，调用方对不上会被判"Key 无效"；CLAUDE_CODE_ENTRYPOINT 等优先级更高，要先去掉
-    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CODE_ENTRYPOINT", "CLAUDECODE")}
+    # 与 beike-lite 的 bk.py 一致：同时去掉名字含 SESSION 的会话变量和 BEIKE_RAW_QUERY，不把会话信息带给贝壳 CLI
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("CLAUDE_CODE_ENTRYPOINT", "CLAUDECODE", "CODEX_INTERNAL_ORIGINATOR_OVERRIDE",
+                        "CODEX_THREAD_ID", "BEIKE_RAW_QUERY") and "SESSION" not in k.upper()}
     env["WORKBUDDY_APP_NAME"] = "workbuddy"
     for wait in (0, 60, 180):  # 偶发限流时退避重试
         time.sleep(gap + wait)
