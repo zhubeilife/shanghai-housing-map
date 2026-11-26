@@ -350,20 +350,25 @@ function schoolBlock(townFull, label){
   Object.keys(SC_STAGE).forEach(stage=>{
     const t = SCHOOLS[townFull][stage];
     if(!t) return;
-    h += `<div class="pp-sec"><span>${SC_STAGE[stage]}${label?` · ${esc(label)}`:''}</span><span class="pp-cnt">${SCT.year||''} 公示 · ${t.schools.length} 所 / ${t.n} 个小区</span></div>`;
+    h += `<div class="pp-sec"><span>${SC_STAGE[stage]}${label?` · ${esc(label)}`:''}</span><span class="pp-cnt">${SCT.year||''} 公示 · ${t.schools.length} 所 / ${t.n} 条对口记录</span></div>`;
     h += '<div class="pp-sc">';
     t.schools.forEach(s=>{
       const areas = s.areas.slice(0, SC_LIMIT);
-      h += `<details><summary><span style="color:inherit;font-size:12.5px">${esc(s.name)}</span><span>${s.areas.length}</span></summary><div class="pp-areas">`;
+      h += `<details><summary><span style="color:inherit;font-size:12.5px">${esc(s.name)}</span><span title="本街镇已匹配的小区记录数">${s.areas.length}</span></summary><div class="pp-areas">`;
       h += areas.map(a=>`<span class="pp-area${a.note?' n':''}"${a.note?` title="${esc(a.note)}"`:''}>${esc(a.n)}</span>`).join('');
       h += '</div>';
       if(s.areas.length > SC_LIMIT)
         h += `<div class="pp-more">另有 ${s.areas.length-SC_LIMIT} 个小区未列出，完整地段见区教育局公示</div>`;
       h += '</details>';
     });
+    if(t.allocation?.length){
+      h += `<details><summary>统筹安排<span>${t.allocation.length}</span></summary><div class="pp-areas">`;
+      h += t.allocation.map(a=>`<span class="pp-area" title="${esc(a.note||'')}">${esc(a.n)}</span>`).join('');
+      h += '</div></details>';
+    }
     h += '</div>';
   });
-  if(h) h += '<div class="pp-note">只列出已收录并匹配到对口学校的小区，不是完整地段；带橙色下划线的小区有备注（部分楼栋、门牌段、多校划片等），鼠标悬停查看</div>';
+  if(h) h += '<div class="pp-note">数字按当前街镇统计，只列出已收录并匹配到对口学校的小区，不是完整地段；带橙色下划线的小区有备注（部分楼栋、门牌段、多校划片等），鼠标悬停查看</div>';
   return h;
 }
 

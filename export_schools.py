@@ -111,8 +111,10 @@ def main():
         towns_geo = json.load(f)
     town_by_name = {(t["dist"], t["name"]): t for t in towns_geo}
 
-    def locate(lng, lat):
+    def locate(lng, lat, district):
         for t in towns_geo:
+            if district and t["dist"] != district:
+                continue
             if any(point_in_ring(lng, lat, r) for r in t["rings"]):
                 return t["name"]
         return None
@@ -145,8 +147,10 @@ def main():
         st = (r["street"] or "").strip()
         if st and (r["e_dist"], st) in town_by_name:
             t, k = st, "street"
+        elif st.endswith("街道") and (r["e_dist"], st[:-2] + "路街道") in town_by_name:
+            t, k = st[:-2] + "路街道", "street"
         elif eid in geo:
-            t, k = locate(*gcj2wgs(*geo[eid])), "coord"
+            t, k = locate(*gcj2wgs(*geo[eid]), r["e_dist"]), "coord"
         else:
             k = "none"
         estate_town[eid] = t
@@ -177,12 +181,18 @@ def main():
             if not sch:
                 continue
             lst = []
+            allocated = sch.get("统筹安排", {})
             for sname, areas in sorted(sch.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+                if sname == "统筹安排":
+                    continue
                 lst.append({"name": sname, "areas": [
                     {"n": n, **({"note": note} if note else {})} for n, note in sorted(areas.items())]})
                 schools_seen[stage].add(sname)
                 n_area += len(areas)
             entry[stage] = {"n": sum(len(s["areas"]) for s in lst), "schools": lst}
+            if allocated:
+                entry[stage]["allocation"] = [{"n": n, **({"note": note} if note else {})}
+                                              for n, note in sorted(allocated.items())]
         out_towns[t] = entry
 
     dists = sorted({town_dist[t] for t in out_towns})
