@@ -104,9 +104,10 @@
   .stSw{width:8px;height:8px;border-radius:50%;background:#fff;border:2px solid #334155;flex:none;}
   .stSw.x{width:10px;height:10px;border-width:2.5px;}
   .stSw.b{border-style:dashed;border-color:#6B7A99;}
-  .leaflet-tooltip.stLbl{background:rgba(255,255,255,.85);border:none;border-radius:3px;box-shadow:none;
-    padding:0 3px;font-size:10.5px;color:#334155;white-space:nowrap;pointer-events:none;}
-  .leaflet-tooltip.stLbl.b{color:#64748b;font-style:italic;}
+  .leaflet-tooltip.stLbl{background:transparent;border:none;border-radius:0;box-shadow:none;
+    padding:0 2px;font-size:9.5px;color:#64748b;opacity:.85;white-space:nowrap;pointer-events:none;
+    text-shadow:0 0 2px #fff,0 0 3px #fff,0 0 4px #fff;}
+  .leaflet-tooltip.stLbl.b{color:#94a3b8;font-style:italic;}
   .leaflet-tooltip.stLbl::before{display:none;}
   .pp-ln{display:inline-block;padding:0 6px;margin:2px 3px 0 0;border-radius:3px;color:#fff;font-size:11.5px;line-height:18px;}
   .pp-ln.b{background:#fff !important;border:1.5px dashed;line-height:15px;}
@@ -195,6 +196,7 @@
         <label><input type="checkbox" id="ckMetro" checked> 地铁线路</label>
         <label><input type="checkbox" id="ckMetroPlanned" checked> 在建/规划地铁（2030前）</label>
         <label><input type="checkbox" id="ckStation" checked> 地铁站点</label>
+        <label><input type="checkbox" id="ckStationLbl" checked> 地铁站名</label>
         <label><input type="checkbox" id="ckTown"> 街镇界参考</label>
         <label id="lbNew"><input type="checkbox" id="ckNew"> 🏠 新房楼盘</label>
         <label><input type="checkbox" id="ckPlan"> 规划用地（控规）</label>
@@ -609,6 +611,8 @@ Object.entries(METRO_PLANNED).forEach(([name,l])=>{
 // 与新房圆点同理用 SVG + 独立 pane（440，压在线路之上、新房之下），空白处可穿透到板块。
 map.createPane('stPane');
 map.getPane('stPane').style.zIndex = 440;
+map.createPane('stLblPane');
+map.getPane('stLblPane').style.zIndex = 445;
 const stRenderer = L.svg({pane:'stPane'});
 const ST = (typeof STATIONS !== 'undefined') ? STATIONS : [];
 function lineColour(l){
@@ -638,16 +642,19 @@ ST.forEach(s=>{
   mk.addTo(open ? stOpenLayer : stBuildLayer);
   stPoints.push({mk, s, xfer, open});
 });
+stPoints.sort((a, b) => (b.open - a.open) || (b.xfer - a.xfer));
 // 按缩放分级，缩得越小显示越少，避免全市视图里糊成一片：
 //   ≤10 不显示 · 11 只显示已开通换乘站 · ≥12 全部站点（在建站更淡）
-//   站名：换乘站 ≥13，已开通站 ≥14，在建站 ≥15
+//   站名：换乘站 ≥14，已开通站 ≥15，在建站 ≥16，且做轻量防重叠抽稀
 function refreshStations(){
   const all = document.getElementById('ckStation').checked;
+  const showLbl = document.getElementById('ckStationLbl').checked;
   [[stOpenLayer,'ckMetro'],[stBuildLayer,'ckMetroPlanned']].forEach(([lyr,id])=>{
     const want = all && document.getElementById(id).checked;
     if(want && !map.hasLayer(lyr)) lyr.addTo(map); else if(!want && map.hasLayer(lyr)) map.removeLayer(lyr);
   });
   const z = map.getZoom();
+  const placed = [];
   stPoints.forEach(o=>{
     const lyr = o.open ? stOpenLayer : stBuildLayer;
     const visible = z >= 12 || (z >= 11 && o.open && o.xfer);   // 可能是半级缩放（11.5）
@@ -655,15 +662,23 @@ function refreshStations(){
     else if(!visible && lyr.hasLayer(o.mk)) lyr.removeLayer(o.mk);
     const r = (z >= 14 ? 4 : z >= 12 ? 3 : 2.5) + (o.xfer ? 1 : 0);
     o.mk.setRadius(r);
-    const lblZoom = !o.open ? 15 : o.xfer ? 13 : 14;
-    const show = visible && map.hasLayer(lyr) && z >= lblZoom;
+    const lblZoom = !o.open ? 16 : o.xfer ? 14 : 15;
+    let show = showLbl && visible && map.hasLayer(lyr) && z >= lblZoom;
+    if(show){
+      const pt = map.latLngToLayerPoint([o.s.lat, o.s.lng]);
+      if(placed.some(p => Math.abs(pt.x - p.x) < 58 && Math.abs(pt.y - p.y) < 16)){
+        show = false;
+      } else {
+        placed.push(pt);
+      }
+    }
     const tip = o.mk.getTooltip();
-    if(show && !tip) o.mk.bindTooltip(o.s.name, {permanent:true, direction:'right', offset:[r+2,0], className:'stLbl'+(o.open?'':' b')});
+    if(show && !tip) o.mk.bindTooltip(o.s.name, {permanent:true, direction:'right', offset:[r+2,0], pane:'stLblPane', className:'stLbl'+(o.open?'':' b')});
     else if(!show && tip) o.mk.unbindTooltip();
   });
 }
 map.on('zoomend', refreshStations);
-['ckStation','ckMetro','ckMetroPlanned'].forEach(id=>document.getElementById(id).addEventListener('change', refreshStations));
+['ckStation','ckStationLbl','ckMetro','ckMetroPlanned'].forEach(id=>document.getElementById(id).addEventListener('change', refreshStations));
 refreshStations();
 
 // ── 规划用地（控规）：上海市规划和自然资源局控规地块瓦片，默认关闭 ──
