@@ -444,8 +444,8 @@ BROWSER_JS = r"""
     target.openPopup();
     later(500, () => {
       const details = document.querySelectorAll('.leaflet-popup-content .pp-sc details');
-      ok('每所学校一条折叠项',
-         details.length === Object.values(SCHOOLS['周浦镇']).reduce((n, v) => n + v.schools.length, 0), details.length);
+      ok('每所学校（及统筹安排）一条折叠项',
+         details.length === Object.values(SCHOOLS['周浦镇']).reduce((n, v) => n + v.schools.length + (v.allocation && v.allocation.length ? 1 : 0), 0), details.length);
       ok('折叠项默认收起', Array.from(details).every(d => !d.open));
       const wrapper = document.querySelector('.leaflet-popup-content-wrapper');
       if (!wrapper) { R.fail.push('弹窗未渲染'); return done(); }
